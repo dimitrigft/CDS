@@ -1,0 +1,41 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+
+# === 1. Charger ton DataFrame avec latitude / longitude ===
+vent = pd.read_csv("donnees_vent.csv")  # doit contenir 'latitude' et 'longitude'
+
+# === 2. Convertir en GeoDataFrame (projection GPS EPSG:4326) ===
+gdf_points = gpd.GeoDataFrame(
+    vent,
+    geometry=gpd.points_from_xy(vent.longitude, vent.latitude),
+    crs="EPSG:4326"
+)
+
+# === 3. Charger les polygones des communes (shapefile) ===
+# Chemin vers ton fichier .shp
+shapefile_path = "chemin/vers/COMMUNE.shp"
+communes = gpd.read_file(shapefile_path)
+
+# Reprojeter les polygones en EPSG:4326 (comme tes points)
+communes = communes.to_crs(epsg=4326)
+
+# Vérifier le nom exact de la colonne contenant le code INSEE
+print(communes.columns)  # souvent 'INSEE_COM' ou 'CODE_INSEE'
+
+# === 4. Jointure spatiale : associer chaque point à la commune la plus proche ===
+points_communes = gpd.sjoin_nearest(
+    gdf_points,
+    communes[["geometry", "CODE_INSEE"]],  # adapte si le nom diffère
+    how="left",
+    distance_col="distance"
+)
+
+# (optionnel) filtrer les points trop éloignés (ex : > 20 km)
+points_communes = points_communes[points_communes["distance"] < 20000]  # 20 km
+
+# === 5. Résultat : chaque ligne a maintenant une commune INSEE ===
+print(points_communes[["latitude", "longitude", "CODE_INSEE"]].head())
+
+# === 6. Sauvegarder si besoin ===
+points_communes.to_csv("vent_avec_communes.csv", index=False)
