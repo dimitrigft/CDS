@@ -1,0 +1,33 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+
+# 1. Ton DataFrame de points
+df_points = pd.DataFrame({
+    'latitude': [48.8566, 41.9028, 16.2650],        # Paris, Rome, Guadeloupe
+    'longitude': [2.3522, 12.4964, -61.5510]
+})
+
+# 2. Conversion en GeoDataFrame
+gdf_points = gpd.GeoDataFrame(
+    df_points,
+    geometry=[Point(xy) for xy in zip(df_points.longitude, df_points.latitude)],
+    crs="EPSG:4326"
+)
+
+# 3. Charger les frontières de la France (pays complet)
+# Ici on utilise Natural Earth via geopandas (simple et rapide)
+world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+
+# 4. Extraire la France
+france = world[world['name'] == 'France']
+
+# 5. Supprimer les DROM-COM en gardant uniquement la métropole
+# Le polygone de la métropole est le plus grand : on le sélectionne
+france_metropole = france.explode(index_parts=False).sort_values(by='geometry', key=lambda g: g.area, ascending=False).iloc[[0]]
+
+# 6. Vérifier si chaque point est dans la France métropolitaine
+gdf_points['en_france_metro'] = gdf_points.within(france_metropole.unary_union)
+
+# 7. Résultat
+print(gdf_points[['latitude', 'longitude', 'en_france_metro']])
