@@ -1,0 +1,5 @@
+from shapely.ops import unary_union
+
+# Calcul correct avec shapely
+union_geom = unary_union(france_metropole.geometry)
+gdf_points['en_france_metro'] = gdf_points.within(union_geom)
