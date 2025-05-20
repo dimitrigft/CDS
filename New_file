@@ -1,0 +1,8 @@
+# 1. Exploser les multipolygones (DOM inclus) en polygones séparés
+france_exploded = france.explode(index_parts=False)
+
+# 2. Calculer l’aire de chaque polygone
+france_exploded['area'] = france_exploded.geometry.area
+
+# 3. Garder le plus grand (France métropolitaine)
+france_metropole = france_exploded.sort_values('area', ascending=False).iloc[[0]]
