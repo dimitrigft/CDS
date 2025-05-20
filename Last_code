@@ -1,0 +1,42 @@
+
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+
+# === 1. Charger les données ERA5 avec latitude / longitude ===
+df = pd.read_csv("donnees_vent.csv")  # doit contenir 'latitude' et 'longitude'
+
+# Créer le GeoDataFrame des points (EPSG:4326)
+gdf_points = gpd.GeoDataFrame(
+    df,
+    geometry=gpd.points_from_xy(df.longitude, df.latitude),
+    crs="EPSG:4326"
+)
+
+# === 2. Charger le shapefile des communes (projection initiale : EPSG:2154 souvent) ===
+communes = gpd.read_file("chemin/vers/COMMUNE.shp")  # adapte le chemin
+# S'assurer qu'on a bien la colonne 'INSEE_COM'
+print(communes.columns)
+
+# === 3. Reprojection en Lambert-93 (EPSG:2154) pour des distances en mètres ===
+gdf_points_proj = gdf_points.to_crs(epsg=2154)
+communes_proj = communes.to_crs(epsg=2154)
+
+# === 4. Jointure spatiale avec distance la plus proche ===
+points_communes = gpd.sjoin_nearest(
+    gdf_points_proj,
+    communes_proj[["geometry", "INSEE_COM"]],
+    how="left",
+    distance_col="distance"
+)
+
+# === 5. (Optionnel) Filtrer les points trop éloignés d'une commune (> 20 km)
+points_communes = points_communes[points_communes["distance"] <= 20000]
+
+# === 6. Reprojeter en EPSG:4326 si tu veux revenir à des coordonnées GPS
+points_communes = points_communes.to_crs(epsg=4326)
+
+# === 7. Sauvegarde finale
+points_communes.to_csv("vent_avec_commune_insee.csv", index=False)
+
+print("✅ Fichier créé : vent_avec_commune_insee.csv")
