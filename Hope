@@ -1,0 +1,59 @@
+import os
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+from shapely.ops import unary_union
+import glob2
+
+# 1. Préparation des couches fixes
+# France métropolitaine
+world = gpd.read_file("country_france/ne_110m_admin_0_countries.shp")
+france = world[world['ADMIN'] == 'France']
+france_exploded = france.explode(index_parts=False)
+france_exploded_proj = france_exploded.to_crs(epsg=2154)
+france_exploded_proj['area'] = france_exploded_proj.geometry.area
+france_metropole = france_exploded_proj.sort_values('area', ascending=False).iloc[[0]]
+union_geom = unary_union(france_metropole.geometry)
+
+# Communes
+communes = gpd.read_file("shafile/COMMUNE.shp")
+communes_proj = communes.to_crs(epsg=2154)
+communes_proj_simple = communes_proj[["geometry", "INSEE_COM"]]
+
+# 2. Fonction d’attribution de la commune à un CSV
+def attribution_commune(csv_file_path):
+    df_vent = pd.read_csv(csv_file_path, parse_dates=['time'])
+
+    # Création des points géo
+    gdf = gpd.GeoDataFrame(df_vent, geometry=gpd.points_from_xy(df_vent.longitude, df_vent.latitude), crs="EPSG:4326")
+    gdf = gdf.to_crs(epsg=2154)
+
+    # Filtrage France métropolitaine
+    gdf = gdf[gdf.within(union_geom)]
+
+    # Jointure exacte
+    gdf_exact = gpd.sjoin(gdf, communes_proj_simple, how="left", predicate="within")
+    gdf_in = gdf_exact[~gdf_exact["INSEE_COM"].isna()]
+
+    # Approximation pour les points hors commune
+    gdf_out = gdf_exact[gdf_exact["INSEE_COM"].isna()].drop(columns=["index_right", "INSEE_COM"])
+    gdf_nearest = gpd.sjoin_nearest(gdf_out, communes_proj_simple, how="left")
+
+    # Fusion des deux
+    gdf_final = pd.concat([gdf_in, gdf_nearest], ignore_index=True)
+    return gdf_final
+
+# 3. Application à tous les fichiers du dossier
+os.chdir("csv_vents_12_25")
+dir_path = os.getcwd()
+liste_csv = glob2.glob(os.path.join(dir_path, "*.csv"))
+
+# Traitement de tous les fichiers et stockage dans une liste
+resultats_mensuels = []
+for fichier in liste_csv:
+    print(f"Traitement de : {fichier}")
+    try:
+        resultat = attribution_commune(fichier)
+        resultats_mensuels.append(resultat)
+    except Exception as e:
+        print(f"Erreur avec {fichier} : {e}")
