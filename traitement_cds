@@ -1,3 +1,10 @@
+os.chdir("csv_vents_12_25")
+os.getcwd()
+
+dir_path = os.getcwd() 
+liste_csv = glob2.glob(os.path.join(dir_path,"*.csv")) # liste de tous les chemins d'accès des fichiers csv
+print (liste_csv)
+
 def attribution_commune(csv_file_path):
     
     # Importation du csv 
