@@ -1,94 +1,84 @@
-Cell In[6], line 34
+NotADirectoryError                        Traceback (most recent call last)
+Cell In[3], line 34
      31         # Télécharger le fichier
      32         s3_client.download_file(bucket_name, obj['Key'], local_file_path)
 ---> 34 download_directory(MODEL_BUCKET, 'DIMITRI/csv_vent_mensuel', 'data_vents_12_25')
 
-Cell In[6], line 21, in download_directory(bucket_name, prefix, local_path)
-     18 os.makedirs(local_path, exist_ok=True)
-     20 # Lister tous les objets dans le préfixe
----> 21 objects = s3_client.list_objects(Bucket=bucket_name, Prefix=prefix)
-     23 # Télécharger chaque fichier
-     24 for obj in objects.get('Contents', []):
-     25     # Construire le chemin local complet
+Cell In[3], line 32, in download_directory(bucket_name, prefix, local_path)
+     29 os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+     31 # Télécharger le fichier
+---> 32 s3_client.download_file(bucket_name, obj['Key'], local_file_path)
 
-File ~/.local/lib/python3.11/site-packages/botocore/client.py:569, in ClientCreator._create_api_method.<locals>._api_call(self, *args, **kwargs)
-    565     raise TypeError(
-    566         f"{py_operation_name}() only accepts keyword arguments."
-    567     )
-    568 # The "self" in this scope is referring to the BaseClient.
---> 569 return self._make_api_call(operation_name, kwargs)
-
-File ~/.local/lib/python3.11/site-packages/botocore/client.py:964, in BaseClient._make_api_call(self, operation_name, api_params)
-    953     logger.debug(
-    954         'Warning: %s.%s() is deprecated', service_name, operation_name
-    955     )
-    956 request_context = {
-    957     'client_region': self.meta.region_name,
-    958     'client_config': self.meta.config,
+File ~/.local/lib/python3.11/site-packages/boto3/s3/inject.py:192, in download_file(self, Bucket, Key, Filename, ExtraArgs, Callback, Config)
+    157 """Download an S3 object to a file.
+    158 
+    159 Usage::
    (...)
-    961     'unsigned_payload': operation_model.unsigned_payload,
-    962 }
---> 964 api_params = self._emit_api_params(
-    965     api_params=api_params,
-    966     operation_model=operation_model,
-    967     context=request_context,
-    968 )
-    969 (
-    970     endpoint_url,
-    971     additional_headers,
-   (...)
-    974     operation_model, api_params, request_context
-    975 )
-    976 if properties:
-    977     # Pass arbitrary endpoint info with the Request
-    978     # for use during construction.
+    189     transfer.
+    190 """
+    191 with S3Transfer(self, Config) as transfer:
+--> 192     return transfer.download_file(
+    193         bucket=Bucket,
+    194         key=Key,
+    195         filename=Filename,
+    196         extra_args=ExtraArgs,
+    197         callback=Callback,
+    198     )
 
-File ~/.local/lib/python3.11/site-packages/botocore/client.py:1083, in BaseClient._emit_api_params(self, api_params, operation_model, context)
-   1075 responses = self.meta.events.emit(
-   1076     f'provide-client-params.{service_id}.{operation_name}',
-   1077     params=api_params,
-   1078     model=operation_model,
-   1079     context=context,
-   1080 )
-   1081 api_params = first_non_none_response(responses, default=api_params)
--> 1083 self.meta.events.emit(
-   1084     f'before-parameter-build.{service_id}.{operation_name}',
-   1085     params=api_params,
-   1086     model=operation_model,
-   1087     context=context,
-   1088 )
-   1089 return api_params
+File ~/.local/lib/python3.11/site-packages/boto3/s3/transfer.py:406, in S3Transfer.download_file(self, bucket, key, filename, extra_args, callback)
+    402 future = self._manager.download(
+    403     bucket, key, filename, extra_args, subscribers
+    404 )
+    405 try:
+--> 406     future.result()
+    407 # This is for backwards compatibility where when retries are
+    408 # exceeded we need to throw the same error from boto3 instead of
+    409 # s3transfer's built in RetriesExceededError as current users are
+    410 # catching the boto3 one instead of the s3transfer exception to do
+    411 # their own retries.
+    412 except S3TransferRetriesExceededError as e:
 
-File ~/.local/lib/python3.11/site-packages/botocore/hooks.py:412, in EventAliaser.emit(self, event_name, **kwargs)
-    410 def emit(self, event_name, **kwargs):
-    411     aliased_event_name = self._alias_event_name(event_name)
---> 412     return self._emitter.emit(aliased_event_name, **kwargs)
+File ~/.local/lib/python3.11/site-packages/s3transfer/futures.py:103, in TransferFuture.result(self)
+     98 def result(self):
+     99     try:
+    100         # Usually the result() method blocks until the transfer is done,
+    101         # however if a KeyboardInterrupt is raised we want want to exit
+    102         # out of this and propagate the exception.
+--> 103         return self._coordinator.result()
+    104     except KeyboardInterrupt as e:
+    105         self.cancel()
 
-File ~/.local/lib/python3.11/site-packages/botocore/hooks.py:256, in HierarchicalEmitter.emit(self, event_name, **kwargs)
-    245 def emit(self, event_name, **kwargs):
-    246     """
-    247     Emit an event by name with arguments passed as keyword args.
-    248 
-   (...)
-    254              handlers.
-    255     """
---> 256     return self._emit(event_name, kwargs)
+File ~/.local/lib/python3.11/site-packages/s3transfer/futures.py:264, in TransferCoordinator.result(self)
+    261 # Once done waiting, raise an exception if present or return the
+    262 # final result.
+    263 if self._exception:
+--> 264     raise self._exception
+    265 return self._result
 
-File ~/.local/lib/python3.11/site-packages/botocore/hooks.py:239, in HierarchicalEmitter._emit(self, event_name, kwargs, stop_on_response)
-    237 for handler in handlers_to_call:
-    238     logger.debug('Event %s: calling handler %s', event_name, handler)
---> 239     response = handler(**kwargs)
-    240     responses.append((handler, response))
-    241     if stop_on_response and response is not None:
+File ~/.local/lib/python3.11/site-packages/s3transfer/tasks.py:135, in Task.__call__(self)
+    131     # If the task is not done (really only if some other related
+    132     # task to the TransferFuture had failed) then execute the task's
+    133     # main() method.
+    134     if not self._transfer_coordinator.done():
+--> 135         return self._execute_main(kwargs)
+    136 except Exception as e:
+    137     self._log_and_set_exception(e)
 
-File ~/.local/lib/python3.11/site-packages/botocore/handlers.py:301, in validate_bucket_name(params, **kwargs)
-    295 if not VALID_BUCKET.search(bucket) and not VALID_S3_ARN.search(bucket):
-    296     error_msg = (
-    297         f'Invalid bucket name "{bucket}": Bucket name must match '
-    298         f'the regex "{VALID_BUCKET.pattern}" or be an ARN matching '
-    299         f'the regex "{VALID_S3_ARN.pattern}"'
-    300     )
---> 301     raise ParamValidationError(report=error_msg)
+File ~/.local/lib/python3.11/site-packages/s3transfer/tasks.py:158, in Task._execute_main(self, kwargs)
+    155 # Log what is about to be executed.
+    156 logger.debug(f"Executing task {self} with kwargs {kwargs_to_display}")
+--> 158 return_value = self._main(**kwargs)
+    159 # If the task is the final task, then set the TransferFuture's
+    160 # value to the return value from main().
+    161 if self._is_final:
 
-ParamValidationError: Parameter validation failed:
-Invalid bucket name "s3-b-dx-mis-11-prod-in ": Bucket name must match the regex "^[a-zA-Z0-9.\-_]{1,255}$" or be an ARN matching the regex "^arn:(aws).*:(s3|s3-object-lambda):[a-z\-0-9]*:[0-9]{12}:accesspoint[/:][a-zA-Z0-9\-.]{1,63}$|^arn:(aws).*:s3-outposts:[a-z\-0-9]+:[0-9]{12}:outpost[/:][a-zA-Z0-9\-]{1,63}[/:]accesspoint[/:][a-zA-Z0-9\-]{1,63}$"
+File ~/.local/lib/python3.11/site-packages/s3transfer/download.py:671, in IORenameFileTask._main(self, fileobj, final_filename, osutil)
+    669 def _main(self, fileobj, final_filename, osutil):
+    670     fileobj.close()
+--> 671     osutil.rename_file(fileobj.name, final_filename)
+
+File ~/.local/lib/python3.11/site-packages/s3transfer/utils.py:291, in OSUtils.rename_file(self, current_filename, new_filename)
+    290 def rename_file(self, current_filename, new_filename):
+--> 291     rename_file(current_filename, new_filename)
+
+NotADirectoryError: [Errno 20] Not a directory: 'data_vents_12_25/DIMITRI/csv_vent_mensuel/.7aD1EA0e' -> 'data_vents_12_25/DIMITRI/csv_vent_mensuel/'
