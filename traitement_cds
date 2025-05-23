@@ -1,0 +1,38 @@
+def attribution_commune(csv_file_path):
+    
+    # Importation du csv 
+    df_vent = pd.read_csv(path_csv, parse_dates=['time'])
+    
+    # Conversion du dataframe en GeoDataFrame (projection GPS EPSG:4326)
+    gdf_points = gpd.GeoDataFrame(df_vent, geometry=gpd.points_from_xy(df_vent.longitude, df_vent.latitude), crs="EPSG:4326")
+    
+    # Reprojection en Lambert-93 (EPSG:2154) pour des distances en mètres
+    gdf_points_proj = gdf_points.to_crs(epsg=2154) 
+
+    # Filtre en retirant les points hors France métropolitaine
+    world = gpd.read_file("country_france/ne_110m_admin_0_countries.shp")
+    france = world[world['ADMIN'] == 'France']  
+    france_exploded = france.explode(index_parts=False) # décomposition en DOM et France métropolitaine (FM)
+    france_exploded_proj = france_exploded.to_crs(epsg = 2154) 
+    france_exploded_proj['area'] = france_exploded_proj.geometry.area # Calcul des superfies DOM et FM 
+    france_metropole = france_exploded_proj.sort_values('area', ascending=False).iloc[[0]] # selection de FM
+    union_geom = unary_union(france_metropole.geometry)
+    gdf_points_proj['en_france_metro'] = gdf_points_proj.within(union_geom) # vérification de l'emplacement des points
+    gdf_points_proj = gdf_points_proj[gdf_points_proj["en_france_metro"] == 1] # On conserve que les points de FM
+
+    # Attribution de code de commune pour chaque ligne 
+    communes = gpd.read_file("shafile/COMMUNE.shp") # shapefile contenant les communes 
+    communes_proj = communes.to_crs(epsg=2154)
+    gdf_points_proj_com = gpd.sjoin(gdf_points_proj, communes_proj[["geometry", "INSEE_COM"]],how="left", predicate= "within")
+    gdf_points_exact_com = gdf_points_proj_com[gdf_points_proj_com["INSEE_COM"].isna() == False]
+
+    # Attribution de code de communes les plus proches aux points n'étant pas à l'intérieur d'une commune
+    gdf_points_approx = gdf_points_proj_com[gdf_points_proj_com["INSEE_COM"].isna() == True]
+    gdf_points_approx = gdf_points_approx.drop(["index_right","INSEE_COM"], axis = 1)
+    gdf_points_approx_com = gpd.sjoin_nearest(gdf_points_approx, communes_proj[["geometry", "INSEE_COM"]], how="left")
+
+    # concaténation des points qui sont exactement dans une commune et ceux qui ont été approximés
+    gdf_points_com_final = pd.concat([gdf_points_exact_com, gdf_points_approx_com])
+
+    return gdf_points_com_final.head(5)
+   
