@@ -57,3 +57,10 @@ for fichier in liste_csv:
         resultats_mensuels.append(resultat)
     except Exception as e:
         print(f"Erreur avec {fichier} : {e}")
+n# Sauvegarde individuelle (facultatif)
+for i, df in enumerate(resultats_mensuels):
+    mois = os.path.basename(liste_csv[i]).replace(".csv", "")
+    df.to_csv(f"resultats_{mois}.csv", index=False)
+
+
+
