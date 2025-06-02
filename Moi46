@@ -1,0 +1,66 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+
+# 1. Charger les communes en EPSG:2154
+communes = gpd.read_file("COMMUNE.shp").to_crs(epsg=2154)
+communes = communes[['INSEE_COM', 'geometry']]
+
+# 2. Charger les points
+df_points = pd.read_csv("tes_donnees.csv")  # contient latitude, longitude, time, etc.
+gdf_points = gpd.GeoDataFrame(
+    df_points,
+    geometry=gpd.points_from_xy(df_points.longitude, df_points.latitude),
+    crs="EPSG:4326"
+).to_crs(epsg=2154)
+
+# 3. Associer les points aux communes via jointure stricte
+pts_in = gpd.sjoin(gdf_points, communes, how="inner", predicate="within")
+pts_in['source'] = 'inside'
+
+# 4. Identifier les communes sans aucun point
+communes_attribuees = pts_in['INSEE_COM'].unique()
+communes_sans_pts = communes[~communes['INSEE_COM'].isin(communes_attribuees)]
+
+# 5. Associer les communes restantes au point le plus proche
+if not communes_sans_pts.empty:
+    # On remet les communes à plat (index propre)
+    communes_sans_pts_reset = communes_sans_pts.reset_index(drop=True)
+
+    # Jointure nearest : commune -> point le plus proche
+    pts_nearest = gpd.sjoin_nearest(
+        communes_sans_pts_reset,
+        gdf_points,
+        how="left",
+        distance_col="dist_min"
+    )
+
+    # Reformater le résultat pour l’aligner avec pts_in
+    pts_nearest = pts_nearest.rename(columns={"geometry_right": "geometry"})
+    pts_nearest = gpd.GeoDataFrame(pts_nearest, geometry="geometry", crs=gdf_points.crs)
+    pts_nearest = pts_nearest.to_crs(epsg=2154)
+    pts_nearest['source'] = 'nearest'
+
+    # Garder les colonnes cohérentes avec pts_in
+    colonnes_essentielles = ['time', 'latitude', 'longitude', 'wind_speed_10m', 'INSEE_COM', 'geometry', 'source']
+    pts_nearest = pts_nearest[[col for col in colonnes_essentielles if col in pts_nearest.columns]]
+
+    # Concaténer les points "inside" et "nearest"
+    gdf_final = pd.concat([pts_in, pts_nearest], ignore_index=True)
+
+else:
+    gdf_final = pts_in
+
+# 6. Vérification anti-doublon : un point ne doit pas être associé à 2 communes
+doublons = gdf_final.duplicated(subset=["latitude", "longitude", "time"], keep=False)
+if doublons.any():
+    print("⚠️ Doublons détectés : mêmes points associés à plusieurs communes")
+    print(gdf_final[doublons][['latitude', 'longitude', 'time', 'INSEE_COM', 'source']])
+else:
+    print("✅ Aucun doublon de point avec plusieurs communes.")
+
+# 7. Nettoyage final si nécessaire
+gdf_final = gdf_final.drop(columns=["geometry"])
+
+# 8. Export CSV
+gdf_final.to_csv("donnees_attribuees_toutes_communes.csv", index=False)
