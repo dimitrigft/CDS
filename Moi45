@@ -1,0 +1,57 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+
+# 1. Charger les communes (en EPSG:2154)
+communes = gpd.read_file("COMMUNE.shp").to_crs(epsg=2154)
+communes = communes[['INSEE_COM', 'geometry']]
+
+# 2. Charger tes données de points
+df_points = pd.read_csv("tes_donnees.csv")  # doit contenir latitude & longitude
+gdf_points = gpd.GeoDataFrame(df_points,
+    geometry=gpd.points_from_xy(df_points.longitude, df_points.latitude),
+    crs="EPSG:4326"
+).to_crs(epsg=2154)
+
+# 3. Jointure stricte (points à l'intérieur des communes)
+pts_in = gpd.sjoin(gdf_points, communes, how="inner", predicate="within")
+pts_in['source'] = 'inside'
+
+# 4. Communes sans point
+communes_attribuees = pts_in['INSEE_COM'].unique()
+communes_sans_pts = communes[~communes['INSEE_COM'].isin(communes_attribuees)]
+
+# 5. Pour chaque commune sans point, trouver le point le plus proche
+if not communes_sans_pts.empty:
+    # sjoin_nearest pour récupérer le point le plus proche de chaque commune
+    communes_sans_pts_reset = communes_sans_pts.reset_index(drop=True)
+    pts_nearest = gpd.sjoin_nearest(communes_sans_pts_reset, gdf_points, how="left", distance_col="dist_min")
+
+    # Reformater pour que ça ressemble à pts_in
+    pts_nearest = pts_nearest.rename(columns={"geometry_right": "geometry"})
+    pts_nearest = gpd.GeoDataFrame(pts_nearest,
+        geometry='geometry',
+        crs=gdf_points.crs
+    )
+    pts_nearest['source'] = 'nearest'
+
+    # Garder les colonnes pertinentes
+    pts_nearest = pts_nearest[['time', 'latitude', 'longitude', 'wind_speed_10m', 'INSEE_COM', 'geometry', 'source']]
+
+    # Remettre en EPSG:2154 si nécessaire
+    pts_nearest = pts_nearest.to_crs(epsg=2154)
+
+    # Concaténer les points exacts + les plus proches
+    gdf_final = pd.concat([pts_in, pts_nearest], ignore_index=True)
+
+else:
+    gdf_final = pts_in
+
+# 6. Nettoyage final : enlever geometry si tu ne veux pas la garder
+gdf_final = gdf_final.drop(columns=['geometry'])
+
+# 7. Résultat : chaque commune apparaît au moins une fois
+print(gdf_final[['INSEE_COM', 'source']].value_counts().head())
+
+# 8. Export si besoin
+gdf_final.to_csv("donnees_attribuees_a_toutes_les_communes.csv", index=False)
