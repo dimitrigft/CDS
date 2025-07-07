@@ -1,0 +1,10 @@
+import pandas as pd
+
+# 1. Création de la colonne "date_mois"
+df_vent['date_mois'] = pd.to_datetime(df_vent['time']).dt.to_period('M').dt.to_timestamp()
+
+# 2. Liste des colonnes météo à agréger
+colonnes_meteo = [col for col in df_vent.columns if col not in ['time', 'latitude', 'longitude', 'code_commune', 'date_mois']]
+
+# 3. Agrégation par commune et mois (max de chaque variable)
+df_vent_mensuel_max = df_vent.groupby(['code_commune', 'date_mois'])[colonnes_meteo].max().reset_index()
