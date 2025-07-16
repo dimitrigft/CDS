@@ -1,0 +1,45 @@
+%macro filtrer_tables(
+    var=,           /* Nom de la variable à filtrer */
+    valeur=,        /* Valeur cible */
+    mois_debut=06,  /* Mois de début (format MM) */
+    annee_debut=20, /* Année de début (format YY) */
+    mois_fin=06,    /* Mois de fin (format MM) */
+    annee_fin=25,   /* Année de fin (format YY) */
+    table_out=filtre_final /* Table de sortie */
+);
+
+    %local m y table nom_table date_loop;
+
+    /* Création de la table finale vide */
+    data &table_out;
+        set _null_;
+    run;
+
+    /* Boucle sur chaque année de annee_debut à annee_fin */
+    %do y = &annee_debut %to &annee_fin;
+        %do m = 1 %to 12;
+            /* Générer MMYY */
+            %let mois = %sysfunc(putn(&m,z2.));
+            %let date_loop = &mois.&y;
+            %let nom_table = EVE&date_loop;
+
+            /* Ne pas dépasser la date de fin */
+            %if (%eval(&y = &annee_debut and &m < &mois_debut)) or
+                (%eval(&y = &annee_fin and &m > &mois_fin)) %then %do;
+                %goto skip;
+            %end;
+
+            /* Vérifier si la table existe */
+            %if %sysfunc(exist(&nom_table)) %then %do;
+                proc append base=&table_out data=&nom_table (where=(&var="&valeur")) force;
+                run;
+            %end;
+            %else %do;
+                %put NOTE: La table &nom_table n'existe pas. Passage à la suivante...;
+            %end;
+
+            %skip:
+        %end;
+    %end;
+
+%mend;
