@@ -1,0 +1,49 @@
+%macro concat_filtre_tables;
+
+    /* Flag pour identifier la première table */
+    %let first_table = 1;
+
+    /* Boucle sur les années */
+    %do year = 2020 %to 2025;
+        %do month = 1 %to 12;
+
+            /* Stop après juin 2025 */
+            %if &year. = 2025 and &month. > 6 %then %goto done;
+
+            /* Format du mois */
+            %let mm = %sysfunc(putn(&month., z2.));
+            /* Nom de bibliothèque (ex : DATE0620) */
+            %let libname = DATE&mm.%substr(&year., 3, 2);
+
+            /* Vérifie si la table existe */
+            %if %sysfunc(exist(&libname..SIN_DGL)) %then %do;
+
+                %put 🔎 Lecture de &libname..SIN_DGL;
+
+                /* Première table : création */
+                %if &first_table. = 1 %then %do;
+                    data WORK.CONCAT_SIN_DGL_MA;
+                        set &libname..SIN_DGL(where=(PRODUIT = "MA"));
+                    run;
+                    %let first_table = 0;
+                %end;
+
+                /* Append des suivantes */
+                %else %do;
+                    proc append base=WORK.CONCAT_SIN_DGL_MA
+                                data=&libname..SIN_DGL(where=(PRODUIT = "MA"))
+                                force;
+                    run;
+                %end;
+
+            %end;
+
+        %end;
+    %end;
+
+%done:
+    %put ✅ Traitement terminé. Résultat dans WORK.CONCAT_SIN_DGL_MA.;
+
+%mend concat_filtre_tables;
+
+%concat_filtre_tables;
