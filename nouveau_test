@@ -1,0 +1,36 @@
+%macro concat_ged_life_gu;
+
+    /* Création d'une table vide pour stocker tous les résultats concaténés */
+    data all_filtered;
+        set _null_;
+    run;
+
+    /* Boucle sur les années de 2020 à 2025 */
+    %do year = 2020 %to 2025;
+        /* Boucle sur les mois de 1 à 12 */
+        %do month = 1 %to 12;
+
+            /* Arrêt en juin 2025 */
+            %if &year.=2025 and &month.>6 %then %goto done;
+
+            /* Formatage du mois en deux chiffres */
+            %let mm = %sysfunc(putn(&month., z2.));
+            /* Formatage du nom de bibliothèque FAMILYMMYY */
+            %let libname = FAMILY%substr(&mm.,1,2)%substr(&year.,3,2);
+
+            /* Vérifier que la table existe avant d'essayer de la lire */
+            %if %sysfunc(exist(&libname..table_ged)) %then %do;
+                /* Ajouter les données filtrées à la table all_filtered */
+                proc append base=all_filtered data=&libname..table_ged (where=(LIFE='GU')) force;
+                run;
+            %end;
+
+        %end;
+    %end;
+
+%done:
+    %put NOTE: Toutes les tables ont été traitées. Résultat dans la table WORK.ALL_FILTERED.;
+
+%mend concat_ged_life_gu;
+
+%concat_ged_life_gu;
