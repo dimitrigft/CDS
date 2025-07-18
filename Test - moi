@@ -1,0 +1,38 @@
+%macro count_vars_sin_dgl;
+
+    %do year = 2020 %to 2025;
+        %do month = 1 %to 12;
+
+            /* Arrêt en juin 2025 */
+            %if &year. = 2025 and &month. > 6 %then %goto fin;
+
+            %let mm = %sysfunc(putn(&month., z2.));
+            %let libname = DATE&mm.%substr(&year., 3, 2);
+
+            /* Vérifie si la table existe */
+            %if %sysfunc(exist(&libname..SIN_DGL)) %then %do;
+
+                /* Utilise PROC SQL pour compter le nombre de variables */
+                proc sql noprint;
+                    select count(*) into :nbvar
+                    from dictionary.columns
+                    where libname = upcase("&libname.")
+                      and memname = "SIN_DGL";
+                quit;
+
+                %put 📊 Table &libname..SIN_DGL contient &nbvar. variables.;
+
+            %end;
+            %else %do;
+                %put ⚠️ Table &libname..SIN_DGL n’existe pas.;
+            %end;
+
+        %end;
+    %end;
+
+%fin:
+    %put ✅ Fin du comptage des variables dans SIN_DGL.;
+
+%mend count_vars_sin_dgl;
+
+%count_vars_sin_dgl;
