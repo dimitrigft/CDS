@@ -1,0 +1,62 @@
+import os
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# 🚀 AVANTAGE DE CE CODE :
+# Ce script permet de parcourir un dossier de CSV volumineux et de les concaténer
+# SANS saturer la RAM, car :
+# 1. On lit les fichiers par morceaux (chunksize) → jamais tout en mémoire
+# 2. Chaque morceau est écrit directement en Parquet → pas de concaténation géante
+# 3. On réduit la taille mémoire avec des types compacts (int32, float32, category)
+# Résultat : on peut traiter des dizaines de millions de lignes sur une machine standard
+
+# 📂 Dossier contenant les CSV
+dossier = r"02_resultats_commune_agregation"
+
+# 📌 Liste des fichiers CSV
+fichiers = [f for f in os.listdir(dossier) if f.endswith(".csv")]
+
+# 📦 Nom du fichier final Parquet
+fichier_sortie = "mon_dataframe.parquet"
+
+# Writer parquet (écriture incrémentale)
+writer = None
+
+for f in fichiers:
+    chemin = os.path.join(dossier, f)
+    print(f"Traitement du fichier : {f}")
+    
+    # Lecture en CHUNKS pour ne pas saturer la RAM
+    for chunk in pd.read_csv(
+            chemin,
+            chunksize=1_000_000,   # ajuste selon ta RAM (ex. 100_000 si tu veux encore + sûr)
+            usecols=['col1', 'col2', 'col3', 'CPOSTMA', 'date'],  # ⚠️ adapte aux colonnes réelles
+            dtype={'col1': 'int32', 'col2': 'float32', 'CPOSTMA': 'string'},
+            parse_dates=['date'],
+            low_memory=True):
+
+        # Ajout d’info temporelle (optionnel)
+        chunk['year'] = chunk['date'].dt.year.astype('int16')
+        chunk['month'] = chunk['date'].dt.month.astype('int8')
+
+        # Conversion en format Arrow
+        table = pa.Table.from_pandas(chunk, preserve_index=False)
+
+        # Création du writer à la première boucle
+        if writer is None:
+            writer = pq.ParquetWriter(fichier_sortie, table.schema)
+
+        # Écriture du chunk dans le fichier Parquet
+        writer.write_table(table)
+
+# Fermeture propre
+if writer is not None:
+    writer.close()
+
+print("✅ Concaténation terminée. Résultat enregistré dans :", fichier_sortie)
+
+# Vérification : relecture rapide
+df = pd.read_parquet(fichier_sortie)
+print(df.shape)
+print(df.head())
