@@ -1,0 +1,25 @@
+import os, pandas as pd, pyarrow as pa, pyarrow.parquet as pq
+
+dossier = r"02_resultats_commune_agregation"
+fichiers = [f for f in os.listdir(dossier) if f.endswith(".csv")]
+
+writer = None
+for f in fichiers:
+    chemin = os.path.join(dossier, f)
+    for chunk in pd.read_csv(
+            chemin,
+            chunksize=1_000_000,                  # ajuste
+            usecols=['col1','col2','col3','CPOSTMA','date'],   # colonnes utiles
+            dtype={'col1':'int32','col2':'float32','CPOSTMA':'string'},
+            parse_dates=['date'],
+            low_memory=True):
+        chunk['year']  = chunk['date'].dt.year.astype('int16')
+        chunk['month'] = chunk['date'].dt.month.astype('int8')
+
+        table = pa.Table.from_pandas(chunk, preserve_index=False)
+        if writer is None:
+            writer = pq.ParquetWriter('mon_dataframe.parquet', table.schema)
+        writer.write_table(table)
+
+if writer is not None:
+    writer.close()
