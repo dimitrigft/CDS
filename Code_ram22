@@ -1,40 +1,67 @@
-import pandas as pd
-
-def nettoyer_variables_objet(df, seuil_na=0.95, seuil_mode=0.95, max_cardinalite=50):
-    # Sélectionner toutes les colonnes de type 'object'
-    colonnes_objet = df.select_dtypes(include='object').columns
-    colonnes_a_supprimer = []
-
-    # Parcourir chaque colonne object
-    for col in colonnes_objet:
-        serie = df[col]
-        n_unique = serie.nunique(dropna=True)  # Nombre de valeurs distinctes
-        taux_na = serie.isna().mean()  # Pourcentage de valeurs manquantes
-        # Pourcentage de la valeur la plus fréquente (si colonne non vide)
-        taux_valeur_mode = serie.value_counts(normalize=True, dropna=True).iloc[0] if n_unique > 0 else 1
-
-        # === Règles de suppression ===
-        if n_unique <= 1:
-            # Colonne inutile : même valeur partout
-            colonnes_a_supprimer.append(col)
-        elif taux_na >= seuil_na:
-            # Trop de valeurs manquantes
-            colonnes_a_supprimer.append(col)
-        elif taux_valeur_mode >= seuil_mode:
-            # Une seule modalité ultra dominante (peu discriminante)
-            colonnes_a_supprimer.append(col)
-        elif 'dt' in col.lower() or 'date' in col.lower():
-            # Colonne de type date (à exclure ici)
-            colonnes_a_supprimer.append(col)
-        elif any(x in col.lower() for x in ['nom', 'ref', 'client', 'adresse', 'geoplan', 'rue', 'cuser', 'projet']):
-            # Colonnes contenant des identifiants ou des libellés personnels
-            colonnes_a_supprimer.append(col)
-        elif n_unique > max_cardinalite:
-            # Trop de modalités différentes (ex. variables quasi uniques)
-            colonnes_a_supprimer.append(col)
-
-    # Affiche un résumé
-    print(f"🔍 Colonnes supprimées : {len(colonnes_a_supprimer)} / {len(colonnes_objet)}")
-
-    # Retourne le DataFrame nettoyé et la liste des colonnes supprimées
-    return df.drop(columns=colonnes_a_supprimer), colonnes_a_supprimer
+['TRIM_YEAR',
+ 'SEXE',
+ 'SITFAM',
+ 'TYPERS',
+ 'CFRACT',
+ 'SITCONT',
+ 'ACTGEST',
+ 'MOTIFCOM',
+ 'DEROG1',
+ 'VOCATION',
+ 'ACTIVITE',
+ 'NATGEST',
+ 'ACTSEC1',
+ 'MOTIFDDR',
+ 'CTREMPLACANT',
+ 'TOPASSAN',
+ 'ZONEINCP',
+ 'ZONEDDEP',
+ 'ZONEVOLP',
+ 'TOPPJ',
+ 'CONTTVA',
+ 'EXPLTVA',
+ 'IPMBNIV',
+ 'IPMBAUT',
+ 'IFRNCHRC',
+ 'IFRNCHDM',
+ 'IFRNCHPE',
+ 'REGUL',
+ 'TOPRCNRJ',
+ 'IPMBNRJ',
+ 'EXTINCT',
+ 'VERIFEXT',
+ 'ALVOLUM',
+ 'CNTENTNRJ',
+ 'IRRIGATION',
+ 'NORM_QUAL',
+ 'TRANSFO',
+ 'VERIFELEC',
+ 'FOUDRE',
+ 'TOPVAN',
+ 'TOPBDG',
+ 'TOPDDEG',
+ 'TOPFUMO',
+ 'TOPIMMOP',
+ 'TOPPEXP',
+ 'IFRNCHGAL',
+ 'IFRNCHTGN',
+ 'IFRNCHSPE',
+ 'TOPFRAISDEBLP',
+ 'CONNEXE',
+ 'PLAN',
+ 'VISIT_RISQ',
+ 'VISIT_RISQ_COHERENCE',
+ 'IND_DIAG',
+ 'SITU_RISQU1',
+ 'SITU_RISQU2',
+ 'SITU_RISQU4',
+ 'BALE2',
+ 'PROFIL_GEN',
+ 'PROFIL_PREV',
+ 'PROFIL_AGG',
+ 'PROFIL_ANT',
+ 'PRESINC',
+ 'TOPRCDEPOT',
+ 'TOPRFRRC',
+ 'INDMULTI',
+ 'TRIM_YEAR_y']
