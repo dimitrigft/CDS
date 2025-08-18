@@ -1,67 +1,16 @@
-['TRIM_YEAR',
- 'SEXE',
- 'SITFAM',
- 'TYPERS',
- 'CFRACT',
- 'SITCONT',
- 'ACTGEST',
- 'MOTIFCOM',
- 'DEROG1',
- 'VOCATION',
- 'ACTIVITE',
- 'NATGEST',
- 'ACTSEC1',
- 'MOTIFDDR',
- 'CTREMPLACANT',
- 'TOPASSAN',
- 'ZONEINCP',
- 'ZONEDDEP',
- 'ZONEVOLP',
- 'TOPPJ',
- 'CONTTVA',
- 'EXPLTVA',
- 'IPMBNIV',
- 'IPMBAUT',
- 'IFRNCHRC',
- 'IFRNCHDM',
- 'IFRNCHPE',
- 'REGUL',
- 'TOPRCNRJ',
- 'IPMBNRJ',
- 'EXTINCT',
- 'VERIFEXT',
- 'ALVOLUM',
- 'CNTENTNRJ',
- 'IRRIGATION',
- 'NORM_QUAL',
- 'TRANSFO',
- 'VERIFELEC',
- 'FOUDRE',
- 'TOPVAN',
- 'TOPBDG',
- 'TOPDDEG',
- 'TOPFUMO',
- 'TOPIMMOP',
- 'TOPPEXP',
- 'IFRNCHGAL',
- 'IFRNCHTGN',
- 'IFRNCHSPE',
- 'TOPFRAISDEBLP',
- 'CONNEXE',
- 'PLAN',
- 'VISIT_RISQ',
- 'VISIT_RISQ_COHERENCE',
- 'IND_DIAG',
- 'SITU_RISQU1',
- 'SITU_RISQU2',
- 'SITU_RISQU4',
- 'BALE2',
- 'PROFIL_GEN',
- 'PROFIL_PREV',
- 'PROFIL_AGG',
- 'PROFIL_ANT',
- 'PRESINC',
- 'TOPRCDEPOT',
- 'TOPRFRRC',
- 'INDMULTI',
- 'TRIM_YEAR_y']
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Étape 1 : Encodage des variables catégorielles
+df_encoded = pd.get_dummies(df_all_trim_1, drop_first=True)
+
+# Étape 2 : Calcul de la matrice de corrélation
+corr_matrix = df_encoded.corr()
+
+# Étape 3 : Affichage graphique de la matrice
+plt.figure(figsize=(20, 16))  # Taille ajustable selon ton écran
+sns.heatmap(corr_matrix, cmap='coolwarm', center=0, linewidths=0.5)
+plt.title("Matrice de Corrélation (toutes variables)", fontsize=16)
+plt.tight_layout()
+plt.show()
