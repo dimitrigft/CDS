@@ -1,0 +1,45 @@
+import pandas as pd
+
+def sliding_window_per_contract(df, contract_col, date_col, time_cols, window_size=2):
+    """
+    Fonction pour créer des features décalées (windowed) par contrat à partir d'un DataFrame.
+    
+    - df : DataFrame d'entrée
+    - contract_col : nom de la colonne identifiant le contrat (ex: 'CONTRAT')
+    - date_col : nom de la colonne temporelle (ex: 'TRIM_YEAR') de format 'YYYY-TX'
+    - time_cols : liste des colonnes à décaler (ex: colonnes de vent)
+    - window_size : nombre de trimestres à remonter (ex: 2 => t-1, t-2)
+    """
+    df_copy = df.copy()
+
+    # Transformer la colonne 'TRIM_YEAR' en format ordonnable
+    def parse_trim(trim_str):
+        year, quarter = trim_str.split('-T')
+        return int(year) * 10 + int(quarter)
+    
+    df_copy['trim_order'] = df_copy[date_col].apply(parse_trim)
+
+    # Trier le DataFrame
+    df_copy = df_copy.sort_values(by=[contract_col, 'trim_order'])
+
+    # Appliquer le décalage par contrat
+    for lag in range(1, window_size + 1):
+        for col in time_cols:
+            df_copy[f"{col}_t-{lag}"] = df_copy.groupby(contract_col)[col].shift(lag)
+
+    # Supprimer la colonne temporaire
+    df_copy = df_copy.drop(columns='trim_order')
+
+    return df_copy
+
+# Colonnes de vent à décaler (par ex. toutes les colonnes contenant 'wind' ou 'gust')
+wind_cols = [col for col in df_all_trim_final.columns if 'wind' in col or 'gust' in col]
+
+# Application de la fonction avec fenêtre de taille 2 (t-1, t-2)
+df_all_trim_final = sliding_window_per_contract(
+    df=df_all_trim_final,
+    contract_col='CONTRAT',
+    date_col='TRIM_YEAR',
+    time_cols=wind_cols,
+    window_size=2
+)
