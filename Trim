@@ -1,0 +1,10 @@
+# Étape 1 : Renommer la colonne
+df_vent_trimestriel_final = df_vent_trimestriel_final.rename(columns={'date_trimestre': 'TRIM_YEAR'})
+
+# Étape 2 : Transformer la date en format "YYYY-Tn"
+df_vent_trimestriel_final['TRIM_YEAR'] = pd.to_datetime(df_vent_trimestriel_final['TRIM_YEAR']).apply(
+    lambda x: f"{x.year}-T{(x.month - 1) // 3 + 1}"
+)
+
+# Vérification
+print(df_vent_trimestriel_final[['INSEE_COM', 'TRIM_YEAR']].head())
