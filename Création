@@ -1,0 +1,11 @@
+# Séparer la colonne TRIM_YEAR
+trim_year_col = df_all_trim_1_reduced[['TRIM_YEAR']]  # en DataFrame (avec double crochets)
+
+# Supprimer TRIM_YEAR du DataFrame d’origine pour encoder
+df_without_trim = df_all_trim_1_reduced.drop(columns=['TRIM_YEAR'])
+
+# One-hot encoding (sans TRIM_YEAR)
+df_encoded = pd.get_dummies(df_without_trim, drop_first=True)
+
+# Reconcaténer TRIM_YEAR avec les données encodées
+df_all_trim_1_reduced_encoded = pd.concat([trim_year_col, df_encoded], axis=1)
