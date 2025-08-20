@@ -1,0 +1,21 @@
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Calcul de la matrice de corrélation
+corr_matrix = df_all_trim_1_reduced_encoded.corr()
+
+# Affichage de la heatmap complète
+plt.figure(figsize=(28, 24))  # Adapter la taille selon le nombre de variables
+sns.heatmap(corr_matrix, 
+            cmap="coolwarm", 
+            annot=False,  # True si tu veux afficher toutes les valeurs, mais ça peut être illisible
+            fmt=".2f",
+            linewidths=0.5,
+            square=True,
+            cbar=True)
+
+plt.title("Heatmap complète de la matrice de corrélation", fontsize=18)
+plt.xticks(rotation=90)
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.show()
