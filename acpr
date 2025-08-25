@@ -1,70 +1,81 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Récupérer le meilleur modèle
-best_model = models[best_idx]  # le modèle du fold avec le meilleur F1-score
-
-# Récupérer les importances
-importances = best_model.feature_importances_
-feature_names = X.columns
-
-# Création d’un DataFrame trié
-feat_imp_df = pd.DataFrame({
-    "feature": feature_names,
-    "importance": importances
-}).sort_values(by="importance", ascending=False)
-
-# Affichage top 20
-plt.figure(figsize=(10, 6))
-sns.barplot(data=feat_imp_df.head(20), x="importance", y="feature", palette="viridis")
-plt.title("Top 20 des variables les plus importantes")
-plt.tight_layout()
-plt.show()
-
-# Exemple : on garde les 25 variables les plus importantes
-top_k = 25
-top_features = feat_imp_df["feature"].head(top_k).tolist()
-
-# Mise à jour des données
-X_top = X[top_features]
+def select_top_features_by_importance(model, X, threshold=0.005):
+    """
+    Retourne les colonnes dont l'importance dépasse le seuil spécifié.
+    """
+    importances = model.feature_importances_
+    selected_features = X.columns[importances > threshold]
+    return selected_features.tolist()
 
 
-results_val_top = []
-models_top = []
 
-for fold, (train_idx, val_idx) in enumerate(folds):
-    X_train, X_val = X_top.iloc[train_idx], X_top.iloc[val_idx]
-    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score, roc_auc_score
 
-    model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=None,
-        class_weight='balanced',
-        random_state=42,
-        n_jobs=-1
-    )
-    model.fit(X_train, y_train)
+seuils = [0.0005, 0.001, 0.002, 0.005, 0.01]
+resultats_seuils = []
 
-    y_pred = model.predict(X_val)
-    y_proba = model.predict_proba(X_val)[:, 1]
+for seuil in seuils:
+    print(f"\n🔍 Seuil d'importance : {seuil}")
+    
+    # 1. Entraîner un modèle global
+    rf = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
+    rf.fit(X.iloc[train_idx], y.iloc[train_idx])
 
-    f1 = f1_score(y_val, y_pred)
-    auc = roc_auc_score(y_val, y_proba)
+    # 2. Sélectionner les variables importantes
+    selected_features = select_top_features_by_importance(rf, X, threshold=seuil)
+    print(f"Variables retenues : {len(selected_features)}")
 
-    results_val_top.append({"fold": fold + 1, "f1": f1, "auc": auc})
-    models_top.append(model)
+    # 3. Réentraîner uniquement avec ces variables sur validation
+    X_train_sel = X.iloc[train_idx][selected_features]
+    X_val_sel = X.iloc[val_idx][selected_features]
+    y_train_sel = y.iloc[train_idx]
+    y_val_sel = y.iloc[val_idx]
 
-# Évaluation finale sur test
-best_idx_top = max(range(len(results_val_top)), key=lambda i: results_val_top[i]["f1"])
-best_model_top = models_top[best_idx_top]
+    rf_sel = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
+    rf_sel.fit(X_train_sel, y_train_sel)
+    
+    y_pred = rf_sel.predict(X_val_sel)
+    y_proba = rf_sel.predict_proba(X_val_sel)[:, 1]
 
-X_test_top = X_top.iloc[test_idx]  # test_idx vient de ton split
-y_test_pred = best_model_top.predict(X_test_top)
-y_test_proba = best_model_top.predict_proba(X_test_top)[:, 1]
+    f1 = f1_score(y_val_sel, y_pred)
+    auc = roc_auc_score(y_val_sel, y_proba)
+    
+    print(f"✅ AUC : {auc:.4f} | F1-score : {f1:.4f}")
 
-print("➡️ Confusion Matrix (Test) avec variables sélectionnées :")
-print(confusion_matrix(y_test, y_test_pred))
-print("\n➡️ Classification Report (Test) :")
-print(classification_report(y_test, y_test_pred, digits=4))
-print(f"✅ AUC Test : {roc_auc_score(y_test, y_test_proba):.4f} | F1-score Test : {f1_score(y_test, y_test_pred):.4f}")
+    resultats_seuils.append({
+        "seuil": seuil,
+        "n_features": len(selected_features),
+        "auc": auc,
+        "f1": f1,
+        "features": selected_features
+    })
+
+
+
+resultats_df = pd.DataFrame(resultats_seuils)
+best_row = resultats_df.sort_values(by="f1", ascending=False).iloc[0]
+print("\n🎯 Meilleur seuil trouvé :")
+print(best_row)
+
+
+best_features = best_row["features"]
+
+X_train_final = X.iloc[train_idx.union(val_idx)][best_features]
+y_train_final = y.iloc[train_idx.union(val_idx)]
+
+X_test_final = X.iloc[test_idx][best_features]
+y_test_final = y.iloc[test_idx]
+
+model_final = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
+model_final.fit(X_train_final, y_train_final)
+
+y_pred_test = model_final.predict(X_test_final)
+y_proba_test = model_final.predict_proba(X_test_final)[:, 1]
+
+print("\n📊 Évaluation finale sur le TEST :")
+print(classification_report(y_test_final, y_pred_test, digits=4))
+print(f"AUC : {roc_auc_score(y_test_final, y_proba_test):.4f}")
+print(f"F1-score : {f1_score(y_test_final, y_pred_test):.4f}")
+
+
+
