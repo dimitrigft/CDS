@@ -1,14 +1,14 @@
+from sklearn.model_selection import train_test_split
+
 df_all_trim_final["CONTRAT"] = df_all_trim_final["CONTRAT"].astype(str)
 df_all_trim_final["SINISTRE_BINARY"] = df_all_trim_final["SINISTRE"].astype(int)
 
-from sklearn.model_selection import train_test_split
-
-# 1. Agréger au niveau contrat
+# Agrégation au niveau contrat
 contracts_df = df_all_trim_final.groupby("CONTRAT").agg({
     "SINISTRE_BINARY": "max"
 }).reset_index()
 
-# 2. Split stratifié par sinistre
+# Split stratifié au niveau contrat
 train_val_ids, test_ids = train_test_split(
     contracts_df["CONTRAT"],
     test_size=0.2,
@@ -16,48 +16,27 @@ train_val_ids, test_ids = train_test_split(
     random_state=42
 )
 
-# 3. Séparer les données complètes
 df_train_val = df_all_trim_final[df_all_trim_final["CONTRAT"].isin(train_val_ids)]
 df_test = df_all_trim_final[df_all_trim_final["CONTRAT"].isin(test_ids)]
 
-intersection = set(df_train_val["CONTRAT"]).intersection(set(df_test["CONTRAT"]))
-print(f"Nombre de contrats en commun : {len(intersection)}")  # Doit être 0
+
+
+------------------
 
 from sklearn.model_selection import StratifiedGroupKFold
 
-# 1. Préparer X, y, groups
 X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
 y = df_train_val["SINISTRE_BINARY"]
 groups = df_train_val["CONTRAT"]
 
-# 2. Créer les folds
 sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
-folds = []
+folds = list(sgkf.split(X, y, groups))
 
-for fold, (train_idx, val_idx) in enumerate(sgkf.split(X, y, groups=groups)):
-    print(f"\nFold {fold + 1} :")
-    print(f"  - Taille train : {len(train_idx)}")
-    print(f"  - Taille val   : {len(val_idx)}")
-    print(f"  - Prop. sinistres (val) : {y.iloc[val_idx].mean():.4f}")
-    
-    folds.append((train_idx, val_idx))
+# Index total pour entraînement final
+train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
+val_idx = folds[3][1]  # dernier fold = validation
 
-# Récupérer les index de test de chaque fold (serviront à former l'ensemble complet train/val)
-train_val_idx = pd.Index([])
-
-for i in range(3):  # folds 0 à 2
-    _, val_idx = folds[i]
-    train_val_idx = train_val_idx.union(val_idx)
-
-# Index du test set (dernier fold)
-_, test_idx = folds[3]
-
-
-
-
-X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-y_test = df_test["SINISTRE_BINARY"]
-
+-------------------
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -66,130 +45,44 @@ from sklearn.metrics import f1_score, roc_auc_score, confusion_matrix, classific
 results_val = []
 models = []
 
-for fold, (train_idx, val_idx) in enumerate(folds):
-    print(f"\n===== Fold {fold+1} =====")
+for fold, (train_idx, val_idx_fold) in enumerate(folds):
+    X_train, X_val = X.iloc[train_idx], X.iloc[val_idx_fold]
+    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx_fold]
 
-    # Séparation des données
-    X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-
-    # Modèle Random Forest
-    model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=None,
-        class_weight='balanced',
-        random_state=42,
-        n_jobs=-1
-    )
-
+    model = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
 
-    # Prédictions
     y_pred = model.predict(X_val)
     y_proba = model.predict_proba(X_val)[:, 1]
 
-    # Scores
-    f1 = f1_score(y_val, y_pred)
-    auc = roc_auc_score(y_val, y_proba)
-
-    print(" Confusion Matrix :")
-    print(confusion_matrix(y_val, y_pred))
-    print("\n Classification Report :")
-    print(classification_report(y_val, y_pred, digits=4))
-    print(f" AUC : {auc:.4f} | F1-score : {f1:.4f}")
-
     results_val.append({
-        'fold': fold + 1,
-        'f1': f1,
-        'auc': auc
+        'fold': fold,
+        'f1': f1_score(y_val, y_pred),
+        'auc': roc_auc_score(y_val, y_proba)
     })
     models.append(model)
 
 
-# Option : prendre le modèle avec le meilleur F1-score
-best_idx = max(range(len(results_val)), key=lambda i: results_val[i]["f1"])
-best_model = models[best_idx]
-
-print(f"\n Évaluation finale sur le jeu de test avec le modèle du Fold {best_idx + 1}")
-
-# Prédiction
-y_test_pred = best_model.predict(X_test)
-y_test_proba = best_model.predict_proba(X_test)[:, 1]
-
-# Scores
-f1_test = f1_score(y_test, y_test_pred)
-auc_test = roc_auc_score(y_test, y_test_proba)
-
-print(" Confusion Matrix (Test) :")
-print(confusion_matrix(y_test, y_test_pred))
-print("\n Classification Report (Test) :")
-print(classification_report(y_test, y_test_pred, digits=4))
-print(f" AUC Test : {auc_test:.4f} | F1-score Test : {f1_test:.4f}")
-
+----------------
 
 def select_top_features_by_importance(model, X, threshold=0.005):
-    """
-    Retourne les colonnes dont l'importance dépasse le seuil spécifié.
-    """
     importances = model.feature_importances_
     selected_features = X.columns[importances > threshold]
     return selected_features.tolist()
 
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import f1_score, roc_auc_score
+best_model_idx = max(range(len(results_val)), key=lambda i: results_val[i]['f1'])
+best_model = models[best_model_idx]
+selected_features = select_top_features_by_importance(best_model, X, threshold=0.005)
 
-seuils = [0.0005, 0.001, 0.002, 0.005, 0.01]
-resultats_seuils = []
+-----------------
 
-for seuil in seuils:
-    print(f"\n Seuil d'importance : {seuil}")
-    
-    # 1. Entraîner un modèle global
-    rf = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
-    rf.fit(X.iloc[train_idx], y.iloc[train_idx])
+X_train_final = X.iloc[train_val_idx][selected_features]
+y_train_final = y.iloc[train_val_idx]
 
-    # 2. Sélectionner les variables importantes
-    selected_features = select_top_features_by_importance(rf, X, threshold=seuil)
-    print(f"Variables retenues : {len(selected_features)}")
-
-    # 3. Réentraîner uniquement avec ces variables sur validation
-    X_train_sel = X.iloc[train_idx][selected_features]
-    X_val_sel = X.iloc[val_idx][selected_features]
-    y_train_sel = y.iloc[train_idx]
-    y_val_sel = y.iloc[val_idx]
-
-    rf_sel = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
-    rf_sel.fit(X_train_sel, y_train_sel)
-    
-    y_pred = rf_sel.predict(X_val_sel)
-    y_proba = rf_sel.predict_proba(X_val_sel)[:, 1]
-
-    f1 = f1_score(y_val_sel, y_pred)
-    auc = roc_auc_score(y_val_sel, y_proba)
-    
-    print(f" AUC : {auc:.4f} | F1-score : {f1:.4f}")
-
-    resultats_seuils.append({
-        "seuil": seuil,
-        "n_features": len(selected_features),
-        "auc": auc,
-        "f1": f1,
-        "features": selected_features
-    })
-
-
-resultats_df = pd.DataFrame(resultats_seuils)
-best_row = resultats_df.sort_values(by="f1", ascending=False).iloc[0]
-print("\n Meilleur seuil trouvé :")
-print(best_row)
-
-best_features = best_row["features"]
-
-X_train_final = X.iloc[train_idx.union(val_idx)][best_features]
-y_train_final = y.iloc[train_idx.union(val_idx)]
-
-X_test_final = X.iloc[test_idx][best_features]
-y_test_final = y.iloc[test_idx]
+X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+y_test = df_test["SINISTRE_BINARY"]
+X_test_final = X_test[selected_features]
+y_test_final = y_test
 
 model_final = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
 model_final.fit(X_train_final, y_train_final)
@@ -197,7 +90,7 @@ model_final.fit(X_train_final, y_train_final)
 y_pred_test = model_final.predict(X_test_final)
 y_proba_test = model_final.predict_proba(X_test_final)[:, 1]
 
-print("\n Évaluation finale sur le TEST :")
+print("\n📊 Évaluation finale sur le TEST :")
 print(classification_report(y_test_final, y_pred_test, digits=4))
 print(f"AUC : {roc_auc_score(y_test_final, y_proba_test):.4f}")
 print(f"F1-score : {f1_score(y_test_final, y_pred_test):.4f}")
