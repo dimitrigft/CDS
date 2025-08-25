@@ -6,7 +6,7 @@ train_val_contrats = set(groups.iloc[train_idx_val])  # tu dois avoir cette vari
 
 # Intersection
 overlap = test_contrats.intersection(train_val_contrats)
-print(f"⚠️ Nombre de contrats communs entre train/val et test : {len(overlap)}")
+print(f" Nombre de contrats communs entre train/val et test : {len(overlap)}")
 
 
 
