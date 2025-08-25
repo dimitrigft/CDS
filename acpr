@@ -1,15 +1,17 @@
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
-import numpy as np
+
+# Stocker les résultats de chaque fold
+results = []
 
 for fold, (train_idx, test_idx) in enumerate(folds):
-    print(f"\n🌀 Fold {fold + 1}")
+    print(f"\n===================== FOLD {fold + 1} =====================")
 
-    # Séparer les données
+    # Séparation des jeux d'entraînement et de test
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
     y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-    # Entraînement du modèle
+    # Initialisation du modèle Random Forest (baseline)
     model = RandomForestClassifier(
         n_estimators=100,
         max_depth=None,
@@ -17,19 +19,29 @@ for fold, (train_idx, test_idx) in enumerate(folds):
         random_state=42,
         n_jobs=-1
     )
+
+    # Entraînement du modèle
     model.fit(X_train, y_train)
 
-    # Prédiction
+    # Prédictions
     y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]  # pour AUC
+    y_proba = model.predict_proba(X_test)[:, 1]
 
     # Évaluation
-    print("Confusion matrix:")
-    print(confusion_matrix(y_test, y_pred))
-
-    print("\nClassification report:")
-    print(classification_report(y_test, y_pred, digits=4))
-
     auc = roc_auc_score(y_test, y_proba)
     f1 = f1_score(y_test, y_pred)
-    print(f"AUC: {auc:.4f} | F1-score: {f1:.4f}")
+
+    print("➡️  Confusion Matrix :")
+    print(confusion_matrix(y_test, y_pred))
+
+    print("\n➡️  Classification Report :")
+    print(classification_report(y_test, y_pred, digits=4))
+
+    print(f"✅ AUC : {auc:.4f} | F1-score : {f1:.4f}")
+
+    # Sauvegarder les résultats pour résumé global
+    results.append({
+        'fold': fold + 1,
+        'auc': auc,
+        'f1': f1
+    })
