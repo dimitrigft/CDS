@@ -1,81 +1,18 @@
-def select_top_features_by_importance(model, X, threshold=0.005):
-    """
-    Retourne les colonnes dont l'importance dépasse le seuil spécifié.
-    """
-    importances = model.feature_importances_
-    selected_features = X.columns[importances > threshold]
-    return selected_features.tolist()
+from sklearn.model_selection import StratifiedGroupKFold
 
+# 1. Préparer X, y, groups
+X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+y = df_train_val["SINISTRE_BINARY"]
+groups = df_train_val["CONTRAT"]
 
+# 2. Créer les folds
+sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
+folds = []
 
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import f1_score, roc_auc_score
-
-seuils = [0.0005, 0.001, 0.002, 0.005, 0.01]
-resultats_seuils = []
-
-for seuil in seuils:
-    print(f"\n🔍 Seuil d'importance : {seuil}")
+for fold, (train_idx, val_idx) in enumerate(sgkf.split(X, y, groups=groups)):
+    print(f"\nFold {fold + 1} :")
+    print(f"  - Taille train : {len(train_idx)}")
+    print(f"  - Taille val   : {len(val_idx)}")
+    print(f"  - Prop. sinistres (val) : {y.iloc[val_idx].mean():.4f}")
     
-    # 1. Entraîner un modèle global
-    rf = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
-    rf.fit(X.iloc[train_idx], y.iloc[train_idx])
-
-    # 2. Sélectionner les variables importantes
-    selected_features = select_top_features_by_importance(rf, X, threshold=seuil)
-    print(f"Variables retenues : {len(selected_features)}")
-
-    # 3. Réentraîner uniquement avec ces variables sur validation
-    X_train_sel = X.iloc[train_idx][selected_features]
-    X_val_sel = X.iloc[val_idx][selected_features]
-    y_train_sel = y.iloc[train_idx]
-    y_val_sel = y.iloc[val_idx]
-
-    rf_sel = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
-    rf_sel.fit(X_train_sel, y_train_sel)
-    
-    y_pred = rf_sel.predict(X_val_sel)
-    y_proba = rf_sel.predict_proba(X_val_sel)[:, 1]
-
-    f1 = f1_score(y_val_sel, y_pred)
-    auc = roc_auc_score(y_val_sel, y_proba)
-    
-    print(f"✅ AUC : {auc:.4f} | F1-score : {f1:.4f}")
-
-    resultats_seuils.append({
-        "seuil": seuil,
-        "n_features": len(selected_features),
-        "auc": auc,
-        "f1": f1,
-        "features": selected_features
-    })
-
-
-
-resultats_df = pd.DataFrame(resultats_seuils)
-best_row = resultats_df.sort_values(by="f1", ascending=False).iloc[0]
-print("\n🎯 Meilleur seuil trouvé :")
-print(best_row)
-
-
-best_features = best_row["features"]
-
-X_train_final = X.iloc[train_idx.union(val_idx)][best_features]
-y_train_final = y.iloc[train_idx.union(val_idx)]
-
-X_test_final = X.iloc[test_idx][best_features]
-y_test_final = y.iloc[test_idx]
-
-model_final = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
-model_final.fit(X_train_final, y_train_final)
-
-y_pred_test = model_final.predict(X_test_final)
-y_proba_test = model_final.predict_proba(X_test_final)[:, 1]
-
-print("\n📊 Évaluation finale sur le TEST :")
-print(classification_report(y_test_final, y_pred_test, digits=4))
-print(f"AUC : {roc_auc_score(y_test_final, y_proba_test):.4f}")
-print(f"F1-score : {f1_score(y_test_final, y_pred_test):.4f}")
-
-
-
+    folds.append((train_idx, val_idx))
