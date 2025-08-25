@@ -1,18 +1,9 @@
-from sklearn.model_selection import StratifiedGroupKFold
+# Récupérer les index de test de chaque fold (serviront à former l'ensemble complet train/val)
+train_val_idx = pd.Index([])
 
-# 1. Préparer X, y, groups
-X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-y = df_train_val["SINISTRE_BINARY"]
-groups = df_train_val["CONTRAT"]
+for i in range(3):  # folds 0 à 2
+    _, val_idx = folds[i]
+    train_val_idx = train_val_idx.union(val_idx)
 
-# 2. Créer les folds
-sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
-folds = []
-
-for fold, (train_idx, val_idx) in enumerate(sgkf.split(X, y, groups=groups)):
-    print(f"\nFold {fold + 1} :")
-    print(f"  - Taille train : {len(train_idx)}")
-    print(f"  - Taille val   : {len(val_idx)}")
-    print(f"  - Prop. sinistres (val) : {y.iloc[val_idx].mean():.4f}")
-    
-    folds.append((train_idx, val_idx))
+# Index du test set (dernier fold)
+_, test_idx = folds[3]
