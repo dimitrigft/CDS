@@ -1,65 +1,13 @@
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import make_scorer, f1_score
-import numpy as np
+# Récupérer tous les contrats dans le fold de test
+test_contrats = set(groups.iloc[test_idx])
 
-# Sélection des folds 1 à 4 pour l'entraînement/validation
-train_val_idx = np.concatenate([folds[i][0] for i in range(4)])  # indexes de train
-X_train_val = X.iloc[train_val_idx]
-y_train_val = y.iloc[train_val_idx]
-groups_train_val = groups.iloc[train_val_idx]
+# Récupérer tous les contrats dans les folds de train/val
+train_val_contrats = set(groups.iloc[train_idx_val])  # tu dois avoir cette variable
 
-# Grid de paramètres
-param_grid = {
-    'n_estimators': [100, 200],
-    'max_depth': [10, 20, None],
-    'min_samples_leaf': [1, 5, 10]
-}
-
-# Scoring basé sur F1-score de la classe minoritaire
-scorer = make_scorer(f1_score, average='binary', pos_label=1)
-
-# Nouvelle CV sur folds 1 à 4
-inner_cv = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
-
-# GridSearchCV avec Random Forest
-grid_search = GridSearchCV(
-    estimator=RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1),
-    param_grid=param_grid,
-    cv=inner_cv.split(X_train_val, y_train_val, groups_train_val),
-    scoring=scorer,
-    n_jobs=-1,
-    verbose=1
-)
-
-# Entraînement
-grid_search.fit(X_train_val, y_train_val)
-
-# Résultats
-print(" Meilleurs hyperparamètres :", grid_search.best_params_)
-print(" Meilleur F1 (val) :", grid_search.best_score_)
+# Intersection
+overlap = test_contrats.intersection(train_val_contrats)
+print(f"⚠️ Nombre de contrats communs entre train/val et test : {len(overlap)}")
 
 
 
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 
-# Test set = fold 5
-X_test = X.iloc[folds[4][1]]
-y_test = y.iloc[folds[4][1]]
-
-# Meilleur modèle trouvé
-best_model = grid_search.best_estimator_
-
-# Prédictions
-y_pred = best_model.predict(X_test)
-y_proba = best_model.predict_proba(X_test)[:, 1]
-
-# Évaluation
-print("\n  Confusion Matrix :")
-print(confusion_matrix(y_test, y_pred))
-
-print("\n  Classification Report :")
-print(classification_report(y_test, y_pred, digits=4))
-
-print(f"\n AUC : {roc_auc_score(y_test, y_proba):.4f}")
-print(f" F1-score : {f1_score(y_test, y_pred):.4f}")
