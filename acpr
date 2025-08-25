@@ -1,30 +1,60 @@
-import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
+import numpy as np
 
-# 1. Copie du dataframe de travail
-df_copy = df_all_trim_final.copy()
+# --- Utilisation des folds déjà définis ---
+trainval_folds = folds[:4]  # Folds 1 à 4 pour entraînement/validation
+test_fold = folds[4]        # Fold 5 pour test final
 
-# 2. S'assurer que l'identifiant est de type string
-df_copy["CONTRAT"] = df_copy["CONTRAT"].astype(str)
+# 🔁 Validation croisée interne
+val_scores = []
 
-# 3. Créer une variable binaire : SINISTRE = 1 s'il y a sinistre, sinon 0
-df_copy["SINISTRE_BINARY"] = df_copy["SINISTRE"].astype(int)
+for i, (train_idx, val_idx) in enumerate(trainval_folds):
+    print(f"\n🔁 Fold {i+1} (Validation interne)")
 
-# 4. Initialiser la cross-validation stratifiée par contrat
-sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+    X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-# 5. Définir X, y et les groupes (contrats)
-X = df_copy.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR","CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])  
-y = df_copy["SINISTRE_BINARY"]
-groups = df_copy["CONTRAT"]
+    # 🔢 Modèle baseline : Régression Logistique avec pondération des classes
+    model = LogisticRegression(
+        class_weight='balanced',
+        solver='liblinear',
+        random_state=42
+    )
+    model.fit(X_train, y_train)
 
-# 6. Exécuter le split et stocker les index des folds
-folds = []
+    y_val_pred = model.predict(X_val)
+    y_val_proba = model.predict_proba(X_val)[:, 1]
 
-for fold, (train_idx, test_idx) in enumerate(sgkf.split(X, y, groups=groups)):
-    print(f"Fold {fold + 1} :")
-    print(f"  - Taille train : {len(train_idx)}")
-    print(f"  - Taille test  : {len(test_idx)}")
-    print(f"  - Proportion sinistres (test) : {y.iloc[test_idx].mean():.4f}")
-    
-    folds.append((train_idx, test_idx))
+    f1 = f1_score(y_val, y_val_pred)
+    auc = roc_auc_score(y_val, y_val_proba)
+
+    print(f"  F1-score : {f1:.4f} | AUC : {auc:.4f}")
+    val_scores.append((f1, auc))
+
+# ✅ Entraînement final sur folds 1–4 combinés
+trainval_idx = np.concatenate([train_idx for train_idx, _ in trainval_folds])
+X_trainval = X.iloc[trainval_idx]
+y_trainval = y.iloc[trainval_idx]
+
+model_final = LogisticRegression(
+    class_weight='balanced',
+    solver='liblinear',
+    random_state=42
+)
+model_final.fit(X_trainval, y_trainval)
+
+# 🧪 Test sur Fold 5
+test_idx = test_fold[1]
+X_test = X.iloc[test_idx]
+y_test = y.iloc[test_idx]
+
+y_test_pred = model_final.predict(X_test)
+y_test_proba = model_final.predict_proba(X_test)[:, 1]
+
+print("\n🧪 Évaluation finale sur test set (Fold 5) :")
+print("➡️ Confusion Matrix :")
+print(confusion_matrix(y_test, y_test_pred))
+print("\n➡️ Classification Report :")
+print(classification_report(y_test, y_test_pred, digits=4))
+print(f"✅ Test AUC : {roc_auc_score(y_test, y_test_proba):.4f} | F1-score : {f1_score(y_test, y_test_pred):.4f}")
