@@ -2,84 +2,50 @@ from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.metrics import classification_report, roc_auc_score, f1_score
+from scipy.stats import randint
 
-----------------------
-
-# Données avec les features sélectionnées précédemment
-X_train_final = X.iloc[train_val_idx][best_row["features"]]
-y_train_final = y.iloc[train_val_idx]
-
-# Pipeline complet
+# Pipeline : SMOTE + undersampling + RandomForest
 pipeline = Pipeline([
-    ("smote", SMOTE(random_state=42)),
-    ("under", RandomUnderSampler(random_state=42)),
-    ("clf", RandomForestClassifier(class_weight="balanced", random_state=42, n_jobs=-1))
+    ('smote', SMOTE(random_state=42)),
+    ('under', RandomUnderSampler(random_state=42)),
+    ('clf', RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1))
 ])
 
-# Grille d'hyperparamètres à tester
-param_grid = {
-    "clf__n_estimators": [100, 200],
-    "clf__max_depth": [None, 10, 20],
-    "clf__min_samples_split": [2, 5],
-    "clf__min_samples_leaf": [1, 2],
+# Paramètres à tester (limités pour rapidité)
+param_dist = {
+    'clf__n_estimators': randint(80, 150),
+    'clf__max_depth': [None, 10, 20],
+    'clf__min_samples_split': [2, 5],
+    'clf__min_samples_leaf': [1, 2],
+    'clf__max_features': ['sqrt', 'log2']
 }
 
-------------------------
-
-from sklearn.model_selection import StratifiedKFold
-
-# Cross-validation interne sur le training set
-inner_cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-
-grid = GridSearchCV(
+# RandomizedSearch rapide
+search = RandomizedSearchCV(
     estimator=pipeline,
-    param_grid=param_grid,
-    scoring="f1",  # F1-score sur la classe positive
-    cv=inner_cv,
-    verbose=2,
-    n_jobs=-1
+    param_distributions=param_dist,
+    n_iter=10,            # Limité à 10 essais
+    scoring='f1',
+    cv=3,                 # Seulement 3 folds
+    verbose=1,
+    random_state=42,
+    n_jobs=-1             # Pour aller plus vite
 )
 
-grid.fit(X_train_final, y_train_final)
+# Entraînement
+search.fit(X_train_final, y_train_final)
 
-----------------------
+# Meilleur modèle
+best_model = search.best_estimator_
+print("✅ Best params:", search.best_params_)
 
-print("\n✅ Meilleurs hyperparamètres trouvés :")
-print(grid.best_params_)
+# Prédiction sur le test
+y_pred_test = best_model.predict(X_test_final)
+y_proba_test = best_model.predict_proba(X_test_final)[:, 1]
 
-best_pipeline = grid.best_estimator_
-
-----------------------
-
-# Prédictions sur le jeu de test
-X_test_final = X_test[best_row["features"]]
-y_test_final = df_test["SINISTRE_BINARY"]
-
-y_proba_test = best_pipeline.predict_proba(X_test_final)[:, 1]
-
-# 🔁 Optionnel : rebalayer les seuils pour optimiser le F1
-best_thresh = 0.5
-best_f1 = 0
-for t in np.arange(0.01, 1.0, 0.01):
-    y_pred_thresh = (y_proba_test >= t).astype(int)
-    score = f1_score(y_test_final, y_pred_thresh)
-    if score > best_f1:
-        best_f1 = score
-        best_thresh = t
-
-# Prédictions finales avec seuil optimal
-y_pred_test = (y_proba_test >= best_thresh).astype(int)
-
---------------------
-
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
-
-print("\n📊 Évaluation finale avec meilleurs hyperparamètres + seuil optimal :")
-print("Seuil de décision optimal :", best_thresh)
-print("Confusion Matrix :")
-print(confusion_matrix(y_test_final, y_pred_test))
-print("\nClassification report :")
+print("\n📊 Résultats sur le TEST :")
 print(classification_report(y_test_final, y_pred_test, digits=4))
 print(f"AUC : {roc_auc_score(y_test_final, y_proba_test):.4f}")
 print(f"F1-score : {f1_score(y_test_final, y_pred_test):.4f}")
