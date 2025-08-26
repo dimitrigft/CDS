@@ -1,72 +1,136 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
+from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from imblearn.pipeline import Pipeline
 
-# Étape 1 : définir les étapes du pipeline
-over = SMOTE(sampling_strategy=0.3, random_state=42)
-under = RandomUnderSampler(sampling_strategy=0.8, random_state=42)
+# Préparation du dataset
+df = df_all_trim_final.copy()
+df["CONTRAT"] = df["CONTRAT"].astype(str)
+df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-resample_pipeline = Pipeline([
-    ('smote', over),
-    ('under', under)
-])
+# Agrégation par contrat pour stratification
+contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
 
-# Appliquer le resampling uniquement sur le jeu d'entraînement final
-X_train_bal, y_train_bal = resample_pipeline.fit_resample(X_train_final, y_train_final)
-
-print(f"Nouvelle distribution :\n{pd.Series(y_train_bal).value_counts()}")
-
--------------------
-from sklearn.ensemble import RandomForestClassifier
-
-model_balanced = RandomForestClassifier(
-    n_estimators=100,
-    class_weight=None,  # plus besoin de class_weight après resampling
-    random_state=42,
-    n_jobs=-1
+# Split stratifié par contrat
+train_val_ids, test_ids = train_test_split(
+    contracts_df["CONTRAT"],
+    test_size=0.2,
+    stratify=contracts_df["SINISTRE_BINARY"],
+    random_state=42
 )
 
-model_balanced.fit(X_train_bal, y_train_bal)
+df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
+df_test = df[df["CONTRAT"].isin(test_ids)]
 
-----------------
+-------------------------
 
-from sklearn.metrics import classification_report, f1_score, roc_auc_score, confusion_matrix
+# Variables d'entraînement
+X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+y = df_train_val["SINISTRE_BINARY"]
+groups = df_train_val["CONTRAT"]
 
-y_test_proba_bal = model_balanced.predict_proba(X_test_final)[:, 1]
+# Cross-validation
+sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
+folds = list(sgkf.split(X, y, groups))
 
-# Par défaut, RandomForest utilise un seuil de 0.5. On va le faire varier.
+# Séparer le dernier fold pour validation finale
+train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
+val_idx = folds[3][1]
 
---------------
+-------------------------
 
-import numpy as np
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score, roc_auc_score
 
-best_threshold = 0.5
-best_f1 = 0
+def select_top_features_by_importance(model, X, threshold=0.005):
+    importances = model.feature_importances_
+    return X.columns[importances > threshold].tolist()
 
-thresholds = np.linspace(0.01, 1.0, 100)
-f1_scores = []
+seuils_importance = [0.0005, 0.001, 0.002, 0.005, 0.01]
+resultats = []
 
-for threshold in thresholds:
-    y_test_pred_thresh = (y_test_proba_bal >= threshold).astype(int)
-    f1 = f1_score(y_test_final, y_test_pred_thresh)
-    f1_scores.append(f1)
-    
-    if f1 > best_f1:
-        best_f1 = f1
-        best_threshold = threshold
+# Boucle sur différents seuils d’importance
+for seuil in seuils_importance:
+    # Entraînement sur les 3 folds
+    rf = RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1)
+    rf.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
+    selected_features = select_top_features_by_importance(rf, X, seuil)
 
-print(f"✅ Meilleur seuil trouvé : {best_threshold:.4f}")
-print(f"✅ F1-score optimal : {best_f1:.4f}")
+    # Préparation des données réduites
+    X_train_sel = X.iloc[train_val_idx][selected_features]
+    y_train_sel = y.iloc[train_val_idx]
+    X_val_sel = X.iloc[val_idx][selected_features]
+    y_val_sel = y.iloc[val_idx]
 
--------------
+    # Pipeline : SMOTE + undersampling + RF
+    pipe = Pipeline([
+        ("smote", SMOTE(random_state=42)),
+        ("under", RandomUnderSampler(random_state=42)),
+        ("clf", RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1))
+    ])
+    pipe.fit(X_train_sel, y_train_sel)
 
-y_test_pred_final = (y_test_proba_bal >= best_threshold).astype(int)
+    y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
+
+    # Recherche du meilleur seuil
+    best_thresh = 0.5
+    best_f1 = 0
+    for t in np.arange(0.01, 1.0, 0.01):
+        y_val_pred = (y_val_proba >= t).astype(int)
+        f1 = f1_score(y_val_sel, y_val_pred)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_thresh = t
+
+    resultats.append({
+        "seuil_var": seuil,
+        "nb_features": len(selected_features),
+        "best_threshold": best_thresh,
+        "best_f1": best_f1,
+        "features": selected_features
+    })
+
+# Résultat optimal
+results_df = pd.DataFrame(resultats)
+best_row = results_df.sort_values(by="best_f1", ascending=False).iloc[0]
+
+--------------------
+
+# Préparation des features sélectionnées
+X_train_final = X.iloc[train_val_idx][best_row["features"]]
+y_train_final = y.iloc[train_val_idx]
+
+X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+X_test_final = X_test[best_row["features"]]
+y_test_final = df_test["SINISTRE_BINARY"]
+
+# Pipeline final
+final_pipeline = Pipeline([
+    ("smote", SMOTE(random_state=42)),
+    ("under", RandomUnderSampler(random_state=42)),
+    ("clf", RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1))
+])
+final_pipeline.fit(X_train_final, y_train_final)
+
+# Prédiction avec proba + seuil optimisé
+y_test_proba = final_pipeline.predict_proba(X_test_final)[:, 1]
+y_test_pred = (y_test_proba >= best_row["best_threshold"]).astype(int)
+
+--------------------
+
+from sklearn.metrics import classification_report, confusion_matrix
 
 print("\n📊 Évaluation finale sur le TEST :")
-print(classification_report(y_test_final, y_test_pred_final, digits=4))
-print("Confusion Matrix :")
-print(confusion_matrix(y_test_final, y_test_pred_final))
-
-auc_final = roc_auc_score(y_test_final, y_test_proba_bal)
-print(f"AUC : {auc_final:.4f}")
-print(f"F1-score (seuil {best_threshold:.2f}) : {f1_score(y_test_final, y_test_pred_final):.4f}")
+print("Confusion matrix :")
+print(confusion_matrix(y_test_final, y_test_pred))
+print("\nClassification report :")
+print(classification_report(y_test_final, y_test_pred, digits=4))
+print(f"AUC : {roc_auc_score(y_test_final, y_test_proba):.4f}")
+print(f"F1-score : {f1_score(y_test_final, y_test_pred):.4f}")
