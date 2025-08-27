@@ -1,77 +1,97 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
-from sklearn.metrics import f1_score, roc_auc_score, classification_report, confusion_matrix
-from imblearn.pipeline import Pipeline
+from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
+from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from xgboost import XGBClassifier
+from imblearn.pipeline import Pipeline
 
-# 1. Préparation des données
+# ======================================
+# 🔹 1. Préparation du dataset
+# ======================================
+
 df = df_all_trim_final.copy()
 df["CONTRAT"] = df["CONTRAT"].astype(str)
 df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-# 2. Stratification par contrat
+# Agrégation pour stratification par contrat
 contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
+
 train_val_ids, test_ids = train_test_split(
     contracts_df["CONTRAT"],
     test_size=0.2,
     stratify=contracts_df["SINISTRE_BINARY"],
     random_state=42
 )
+
 df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
 df_test = df[df["CONTRAT"].isin(test_ids)]
 
-# 3. Définir X, y, groups
+# Données d'entraînement
 X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
 y = df_train_val["SINISTRE_BINARY"]
 groups = df_train_val["CONTRAT"]
 
-# 4. Cross-validation (4 folds : 3 train + 1 validation)
+# Convertir toutes les colonnes en float (XGBoost demande un dtype clair)
+X = X.astype(np.float32)
+
+# ======================================
+# 🔹 2. Cross-validation
+# ======================================
+
 sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
 folds = list(sgkf.split(X, y, groups))
+
+# On utilise les 3 premiers folds pour entraînement, le dernier pour validation
 train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
 val_idx = folds[3][1]
 
-# 5. Sélection des variables importantes avec seuils
+# ======================================
+# 🔹 3. Fonction de sélection des variables
+# ======================================
+
 def select_top_features_by_importance(model, X, threshold=0.005):
     importances = model.feature_importances_
     return X.columns[importances > threshold].tolist()
+
+# ======================================
+# 🔹 4. Boucle sur les seuils d’importance
+# ======================================
 
 seuils_importance = [0.0005, 0.001, 0.002, 0.005, 0.01]
 resultats = []
 
 for seuil in seuils_importance:
-    # a. Entraîner un XGBoost pour importance
+    print(f"\n🔎 Test du seuil {seuil}...")
+
+    # Entraînement d’un XGBoost sur les données complètes (pour l’importance)
     base_model = XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1)
-    X_train = X.iloc[train_val_idx].astype(np.float32)
-    y_train = y.iloc[train_val_idx].astype(int)
-    base_model.fit(X_train, y_train)
+    base_model.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
 
-    # b. Sélectionner les features importantes
-    selected = select_top_features_by_importance(base_model, X_train, threshold=seuil)
+    selected = select_top_features_by_importance(base_model, X, threshold=seuil)
 
-    # c. Sélection des données réduites
-    X_train_sel = X.loc[train_val_idx, selected].astype(np.float32)
-    y_train_sel = y.loc[train_val_idx].astype(int)
-    X_val_sel = X.loc[val_idx, selected].astype(np.float32)
-    y_val_sel = y.loc[val_idx].astype(int)
+    X_train_sel = X.iloc[train_val_idx][selected]
+    y_train_sel = y.iloc[train_val_idx]
+    X_val_sel = X.iloc[val_idx][selected]
+    y_val_sel = y.iloc[val_idx]
 
-    # d. Pipeline avec XGBoost
+    # Pipeline SMOTE + undersampling + XGBoost
     pipe = Pipeline([
         ("smote", SMOTE(random_state=42)),
         ("under", RandomUnderSampler(random_state=42)),
         ("clf", XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1))
     ])
+
     pipe.fit(X_train_sel, y_train_sel)
     y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
 
-    # e. Optimisation du seuil
-    best_thresh, best_f1 = 0.5, 0
+    # Optimisation du seuil de décision
+    best_thresh = 0.5
+    best_f1 = 0
     for t in np.arange(0.01, 1.0, 0.01):
-        y_pred = (y_val_proba >= t).astype(int)
-        f1 = f1_score(y_val_sel, y_pred)
+        y_pred_t = (y_val_proba >= t).astype(int)
+        f1 = f1_score(y_val_sel, y_pred_t)
         if f1 > best_f1:
             best_f1 = f1
             best_thresh = t
@@ -84,18 +104,26 @@ for seuil in seuils_importance:
         "features": selected
     })
 
-# 6. Résultat optimal
+# Résultats
 results_df = pd.DataFrame(resultats)
 best_row = results_df.sort_values(by="best_f1", ascending=False).iloc[0]
 
-# 7. Réentraîner avec les meilleurs paramètres sur le test
-X_train_final = X.loc[train_val_idx, best_row["features"]].astype(np.float32)
-y_train_final = y.loc[train_val_idx].astype(int)
+# ======================================
+# 🔹 5. Entraînement final sur test
+# ======================================
 
+print(f"\n✅ Meilleur seuil d'importance : {best_row['seuil_var']}, nb features : {best_row['nb_features']}, seuil de décision : {best_row['best_threshold']:.2f}")
+
+X_train_final = X.iloc[train_val_idx][best_row["features"]]
+y_train_final = y.iloc[train_val_idx]
+
+# Données test
 X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X_test_final = X_test[best_row["features"]].astype(np.float32)
-y_test_final = df_test["SINISTRE_BINARY"].astype(int)
+X_test = X_test.astype(np.float32)
+X_test_final = X_test[best_row["features"]]
+y_test_final = df_test["SINISTRE_BINARY"]
 
+# Pipeline final
 final_pipeline = Pipeline([
     ("smote", SMOTE(random_state=42)),
     ("under", RandomUnderSampler(random_state=42)),
@@ -103,15 +131,14 @@ final_pipeline = Pipeline([
 ])
 final_pipeline.fit(X_train_final, y_train_final)
 
-# 8. Prédiction test
+# Évaluation sur test
 y_test_proba = final_pipeline.predict_proba(X_test_final)[:, 1]
 y_test_pred = (y_test_proba >= best_row["best_threshold"]).astype(int)
 
-# 9. Affichage des résultats
 print("\n📊 Évaluation finale sur le TEST :")
-print("Confusion matrix :")
+print("Confusion Matrix :")
 print(confusion_matrix(y_test_final, y_test_pred))
-print("\nClassification report :")
+print("\nClassification Report :")
 print(classification_report(y_test_final, y_test_pred, digits=4))
 print(f"AUC : {roc_auc_score(y_test_final, y_test_proba):.4f}")
 print(f"F1-score : {f1_score(y_test_final, y_test_pred):.4f}")
