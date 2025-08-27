@@ -1,70 +1,65 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
-from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
+from sklearn.metrics import f1_score, roc_auc_score, classification_report, confusion_matrix
 from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from lightgbm import LGBMClassifier
 
-# 1. Données
+# Préparation des données
 df = df_all_trim_final.copy()
 df["CONTRAT"] = df["CONTRAT"].astype(str)
 df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-# 2. Split stratifié par contrat
+# Split train/val/test par contrat
 contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
 train_val_ids, test_ids = train_test_split(
-    contracts_df["CONTRAT"], test_size=0.2,
-    stratify=contracts_df["SINISTRE_BINARY"], random_state=42
+    contracts_df["CONTRAT"],
+    test_size=0.2,
+    stratify=contracts_df["SINISTRE_BINARY"],
+    random_state=42
 )
+df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
+df_test = df[df["CONTRAT"].isin(test_ids)]
 
-df_train_val = df[df["CONTRAT"].isin(train_val_ids)].copy()
-df_test = df[df["CONTRAT"].isin(test_ids)].copy()
-
-# 3. Variables explicatives
+# Variables
 X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X = X.astype(np.float32)
-y = df_train_val["SINISTRE_BINARY"].astype(np.int32)
+y = df_train_val["SINISTRE_BINARY"]
 groups = df_train_val["CONTRAT"]
 
-# 4. Cross-validation stratifiée par contrat
+# Folds pour cross-validation
 sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
 folds = list(sgkf.split(X, y, groups))
 train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
 val_idx = folds[3][1]
 
-# 5. Sélection par importance (LightGBM le permet)
+# Sélection de variables importantes par seuil
 def select_top_features_by_importance(model, X, threshold=0.005):
     importances = model.feature_importances_
-    return X.columns[importances > threshold].tolist()
+    return list(dict.fromkeys(X.columns[importances > threshold]))
 
 seuils_importance = [0.0005, 0.001, 0.002, 0.005, 0.01]
 resultats = []
 
-# 6. Boucle sur les seuils
 for seuil in seuils_importance:
-    X_train_fold = X.iloc[train_val_idx]
-    y_train_fold = y.iloc[train_val_idx]
-    X_val_fold = X.iloc[val_idx]
-    y_val_fold = y.iloc[val_idx]
+    base_model = LGBMClassifier(random_state=42, n_jobs=-1)
+    base_model.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
+    selected_features = select_top_features_by_importance(base_model, X, threshold=seuil)
 
-    base_model = LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1)
-    base_model.fit(X_train_fold, y_train_fold)
-    selected = select_top_features_by_importance(base_model, X_train_fold, seuil)
+    X_train_sel = X.iloc[train_val_idx][selected_features]
+    y_train_sel = y.iloc[train_val_idx]
+    X_val_sel = X.iloc[val_idx][selected_features]
+    y_val_sel = y.iloc[val_idx]
 
-    X_train_sel = X_train_fold[selected].values.astype(np.float32)
-    y_train_sel = y_train_fold.values.astype(np.int32)
-    X_val_sel = X_val_fold[selected].values.astype(np.float32)
-    y_val_sel = y_val_fold.values.astype(np.int32)
-
-    pipe = Pipeline([
+    pipeline = Pipeline([
         ("smote", SMOTE(random_state=42)),
         ("under", RandomUnderSampler(random_state=42)),
-        ("clf", LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1))
+        ("clf", LGBMClassifier(random_state=42, n_jobs=-1))
     ])
-    pipe.fit(X_train_sel, y_train_sel)
-    y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
+    pipeline.fit(X_train_sel, y_train_sel)
+
+    y_val_proba = pipeline.predict_proba(X_val_sel)[:, 1]
 
     best_thresh = 0.5
     best_f1 = 0
@@ -77,39 +72,41 @@ for seuil in seuils_importance:
 
     resultats.append({
         "seuil_var": seuil,
-        "nb_features": len(selected),
+        "nb_features": len(selected_features),
         "best_threshold": best_thresh,
         "best_f1": best_f1,
-        "features": selected
+        "features": selected_features
     })
 
-# 7. Résultat optimal
+# Résultats
 results_df = pd.DataFrame(resultats)
 best_row = results_df.sort_values(by="best_f1", ascending=False).iloc[0]
+selected_features = list(dict.fromkeys(best_row["features"]))
 
-# 8. Réentraînement sur train complet avec seuil optimal
-X_train_final = X.iloc[train_val_idx][best_row["features"]].values.astype(np.float32)
-y_train_final = y.iloc[train_val_idx].values.astype(np.int32)
+# Données finales
+X_train_final = X.iloc[train_val_idx][selected_features]
+y_train_final = y.iloc[train_val_idx]
 
 X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X_test_final = X_test[best_row["features"]].values.astype(np.float32)
-y_test_final = df_test["SINISTRE_BINARY"].values.astype(np.int32)
+X_test_final = X_test[selected_features]
+y_test_final = df_test["SINISTRE_BINARY"]
 
-final_pipe = Pipeline([
+# Pipeline LightGBM final
+final_pipeline = Pipeline([
     ("smote", SMOTE(random_state=42)),
     ("under", RandomUnderSampler(random_state=42)),
-    ("clf", LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1))
+    ("clf", LGBMClassifier(random_state=42, n_jobs=-1))
 ])
-final_pipe.fit(X_train_final, y_train_final)
+final_pipeline.fit(X_train_final, y_train_final)
 
-# 9. Évaluation finale
-y_test_proba = final_pipe.predict_proba(X_test_final)[:, 1]
+# Évaluation
+y_test_proba = final_pipeline.predict_proba(X_test_final)[:, 1]
 y_test_pred = (y_test_proba >= best_row["best_threshold"]).astype(int)
 
-print("\n📊 Évaluation finale sur le TEST (LightGBM) :")
-print("Confusion Matrix :")
+print("\n📊 Évaluation finale LightGBM sur le TEST :")
+print("Confusion matrix :")
 print(confusion_matrix(y_test_final, y_test_pred))
-print("\nClassification Report :")
+print("\nClassification report :")
 print(classification_report(y_test_final, y_test_pred, digits=4))
 print(f"AUC : {roc_auc_score(y_test_final, y_test_proba):.4f}")
 print(f"F1-score : {f1_score(y_test_final, y_test_pred):.4f}")
