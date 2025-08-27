@@ -1,21 +1,19 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
-from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
-from lightgbm import LGBMClassifier
-from imblearn.pipeline import Pipeline
+from sklearn.metrics import f1_score, roc_auc_score, classification_report, confusion_matrix
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
+from imblearn.pipeline import Pipeline
+from lightgbm import LGBMClassifier
 
-# 1. Préparation du dataset
+# Étape 1 : Préparation des données
 df = df_all_trim_final.copy()
 df["CONTRAT"] = df["CONTRAT"].astype(str)
 df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-# 2. Agrégation par contrat pour stratification
 contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
 
-# 3. Split stratifié par contrat
 train_val_ids, test_ids = train_test_split(
     contracts_df["CONTRAT"],
     test_size=0.2,
@@ -26,59 +24,53 @@ train_val_ids, test_ids = train_test_split(
 df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
 df_test = df[df["CONTRAT"].isin(test_ids)]
 
-# 4. Variables d'entraînement
 X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
 y = df_train_val["SINISTRE_BINARY"]
 groups = df_train_val["CONTRAT"]
 
-# 5. Cross-validation (Stratified Group KFold)
 sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
 folds = list(sgkf.split(X, y, groups))
 
-# 6. Séparer le dernier fold pour validation finale
+# On garde les 3 premiers folds pour entraîner + valider, et le dernier pour validation finale
 train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
 val_idx = folds[3][1]
 
-# 7. Sélection des features par importance
+# Étape 2 : Sélection des variables par importance
 def select_top_features_by_importance(model, X, threshold=0.005):
     importances = model.feature_importances_
-    return X.columns[importances > threshold].tolist()
+    selected = X.columns[importances > threshold]
+    return list(dict.fromkeys(selected))  # élimine les doublons
 
-# 8. Boucle de sélection sur différents seuils
 seuils_importance = [0.0005, 0.001, 0.002, 0.005, 0.01]
 resultats = []
 
 for seuil in seuils_importance:
-    print(f"\n⏳ Seuil d'importance : {seuil}")
+    print(f"\n➡️ Seuil d’importance : {seuil}")
     
-    # 8.1 Entraîner le modèle LightGBM sur train_val_idx
     model = LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1)
     model.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
 
-    selected_features = select_top_features_by_importance(model, X, seuil)
+    selected_features = select_top_features_by_importance(model, X, threshold=seuil)
 
-    # 8.2 Préparation des données réduites
     X_train_sel = X.iloc[train_val_idx][selected_features]
     y_train_sel = y.iloc[train_val_idx]
     X_val_sel = X.iloc[val_idx][selected_features]
     y_val_sel = y.iloc[val_idx]
 
-    # ✅ Supprimer les colonnes en double (bug LightGBM)
+    # Supprimer les colonnes en double
     X_train_sel = X_train_sel.loc[:, ~X_train_sel.columns.duplicated()]
     X_val_sel = X_val_sel.loc[:, ~X_val_sel.columns.duplicated()]
 
-    # 8.3 Pipeline avec SMOTE + undersampling + LGBM
-    pipe = Pipeline([
+    pipeline = Pipeline([
         ("smote", SMOTE(random_state=42)),
         ("under", RandomUnderSampler(random_state=42)),
         ("clf", LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1))
     ])
-    pipe.fit(X_train_sel, y_train_sel)
 
-    # 8.4 Prédiction sur validation
-    y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
+    pipeline.fit(X_train_sel, y_train_sel)
+    y_val_proba = pipeline.predict_proba(X_val_sel)[:, 1]
 
-    # 8.5 Optimisation du seuil de décision
+    # Optimisation du seuil de décision
     best_thresh = 0.5
     best_f1 = 0
     for t in np.arange(0.01, 1.0, 0.01):
@@ -96,40 +88,36 @@ for seuil in seuils_importance:
         "features": selected_features
     })
 
-# 9. Résultat optimal
+# Étape 3 : Réentraîner sur le train complet + test final
 results_df = pd.DataFrame(resultats)
 best_row = results_df.sort_values(by="best_f1", ascending=False).iloc[0]
 
-# 10. Données finales d'entraînement/test
-selected_features = list(dict.fromkeys(best_row["features"]))  # Supprimer doublons
-
-X_train_final = X.iloc[train_val_idx][selected_features]
+X_train_final = X.iloc[train_val_idx][best_row["features"]]
+X_train_final = X_train_final.loc[:, ~X_train_final.columns.duplicated()]
 y_train_final = y.iloc[train_val_idx]
 
 X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X_test_final = X_test[selected_features]
-y_test_final = df_test["SINISTRE_BINARY"]
-
-# ✅ Supprimer doublons LightGBM
-X_train_final = X_train_final.loc[:, ~X_train_final.columns.duplicated()]
+y_test = df_test["SINISTRE_BINARY"]
+X_test_final = X_test[best_row["features"]]
 X_test_final = X_test_final.loc[:, ~X_test_final.columns.duplicated()]
 
-# 11. Pipeline final (entraînement complet)
 final_pipeline = Pipeline([
     ("smote", SMOTE(random_state=42)),
     ("under", RandomUnderSampler(random_state=42)),
     ("clf", LGBMClassifier(class_weight="balanced", random_state=42, n_jobs=-1))
 ])
+
 final_pipeline.fit(X_train_final, y_train_final)
 
-# 12. Évaluation finale sur le TEST
+# Prédiction finale avec seuil optimisé
 y_test_proba = final_pipeline.predict_proba(X_test_final)[:, 1]
 y_test_pred = (y_test_proba >= best_row["best_threshold"]).astype(int)
 
-print("\n📊 Évaluation finale sur le jeu de TEST :")
-print("➡️ Confusion matrix :")
-print(confusion_matrix(y_test_final, y_test_pred))
-print("\n➡️ Classification report :")
-print(classification_report(y_test_final, y_test_pred, digits=4))
-print(f"✅ AUC : {roc_auc_score(y_test_final, y_test_proba):.4f}")
-print(f"✅ F1-score : {f1_score(y_test_final, y_test_pred):.4f}
+# Évaluation
+print("\n📊 Évaluation finale sur le TEST :")
+print("Confusion matrix :")
+print(confusion_matrix(y_test, y_test_pred))
+print("\nClassification report :")
+print(classification_report(y_test, y_test_pred, digits=4))
+print(f"AUC : {roc_auc_score(y_test, y_test_proba):.4f}")
+print(f"F1-score : {f1_score(y_test, y_test_pred):.4f}")
