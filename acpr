@@ -1,20 +1,18 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
-from sklearn.metrics import classification_report, f1_score, roc_auc_score, confusion_matrix
+from xgboost import XGBClassifier
+from sklearn.metrics import f1_score, roc_auc_score, classification_report, confusion_matrix
+from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from imblearn.pipeline import Pipeline
-from xgboost import XGBClassifier
 
-# ─────────────────────────────────────────────────────────────
-# Étape 1 : Split des données par contrat (train/val/test)
-# ─────────────────────────────────────────────────────────────
+# ====== Étape 1 : Préparation des données ======
 df = df_all_trim_final.copy()
 df["CONTRAT"] = df["CONTRAT"].astype(str)
 df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-contracts_df = df.groupby("CONTRAT")["SINISTRE_BINARY"].max().reset_index()
+contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
 
 train_val_ids, test_ids = train_test_split(
     contracts_df["CONTRAT"],
@@ -26,114 +24,102 @@ train_val_ids, test_ids = train_test_split(
 df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
 df_test = df[df["CONTRAT"].isin(test_ids)]
 
-# ─────────────────────────────────────────────────────────────
-# Étape 2 : Cross-validation sur les folds
-# ─────────────────────────────────────────────────────────────
 X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
 y = df_train_val["SINISTRE_BINARY"]
 groups = df_train_val["CONTRAT"]
 
+# ====== Étape 2 : Folds pour validation croisée ======
 sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
-folds = list(sgkf.split(X, y, groups))
+folds = list(sgkf.split(X, y, groups=groups))
 
-train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
-val_idx = folds[3][1]
-
-# ─────────────────────────────────────────────────────────────
-# Étape 3 : Sélection automatique des variables via importance
-# ─────────────────────────────────────────────────────────────
-def get_top_features(model, X, threshold):
+# ====== Étape 3 : Sélection du meilleur seuil de variable ======
+def select_top_features_by_importance(model, X, threshold):
     importances = model.feature_importances_
     return X.columns[importances > threshold].tolist()
 
 seuils = [0.0005, 0.001, 0.002, 0.005, 0.01]
-results = []
+cv_results = []
 
 for seuil in seuils:
-    model = XGBClassifier(n_estimators=100, use_label_encoder=False, eval_metric="logloss", random_state=42)
-    model.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
+    print(f"\n🔍 Test seuil d'importance = {seuil}")
+    fold_metrics = []
 
-    top_feats = get_top_features(model, X, threshold=seuil)
-    X_train_sel = X.iloc[train_val_idx][top_feats]
-    y_train_sel = y.iloc[train_val_idx]
-    X_val_sel = X.iloc[val_idx][top_feats]
-    y_val_sel = y.iloc[val_idx]
+    for fold, (train_idx, val_idx) in enumerate(folds):
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-    pipe = Pipeline([
-        ("smote", SMOTE(random_state=42)),
-        ("under", RandomUnderSampler(random_state=42)),
-        ("clf", XGBClassifier(
-            objective="binary:logistic",
-            use_label_encoder=False,
-            eval_metric="logloss",
-            n_estimators=100,
-            random_state=42,
-            n_jobs=-1
-        ))
-    ])
-    pipe.fit(X_train_sel, y_train_sel)
-    y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
+        # Sélection des features importantes
+        base_model = XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1)
+        base_model.fit(X_train, y_train)
+        selected = select_top_features_by_importance(base_model, X_train, threshold=seuil)
 
-    best_f1 = 0
-    best_thresh = 0.5
-    for t in np.arange(0.01, 1.0, 0.01):
-        y_pred = (y_val_proba >= t).astype(int)
-        f1 = f1_score(y_val_sel, y_pred)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_thresh = t
+        X_train_sel = X_train[selected]
+        X_val_sel = X_val[selected]
 
-    results.append({
+        # Pipeline
+        pipe = Pipeline([
+            ("smote", SMOTE(random_state=42)),
+            ("under", RandomUnderSampler(random_state=42)),
+            ("clf", XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1))
+        ])
+        pipe.fit(X_train_sel, y_train)
+        y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
+
+        # Optimisation seuil
+        best_f1 = 0
+        best_thresh = 0.5
+        for t in np.arange(0.01, 1.0, 0.01):
+            pred = (y_val_proba >= t).astype(int)
+            f1 = f1_score(y_val, pred)
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thresh = t
+
+        auc = roc_auc_score(y_val, y_val_proba)
+        fold_metrics.append({"f1": best_f1, "auc": auc, "threshold": best_thresh})
+
+    # Moyenne sur les folds
+    avg_f1 = np.mean([m["f1"] for m in fold_metrics])
+    avg_auc = np.mean([m["auc"] for m in fold_metrics])
+    avg_thresh = np.mean([m["threshold"] for m in fold_metrics])
+
+    cv_results.append({
         "seuil": seuil,
-        "features": top_feats,
-        "f1": best_f1,
-        "threshold": best_thresh,
-        "n_features": len(top_feats)
+        "f1": avg_f1,
+        "auc": avg_auc,
+        "threshold": avg_thresh,
+        "features": selected
     })
 
-results_df = pd.DataFrame(results)
-best_row = results_df.sort_values(by="f1", ascending=False).iloc[0]
+# ====== Étape 4 : Résumé des résultats cross-val et sélection du meilleur seuil ======
+cv_df = pd.DataFrame(cv_results)
+best_row = cv_df.sort_values(by="f1", ascending=False).iloc[0]
+print("\n✅ Meilleur seuil retenu :")
+print(best_row)
 
-# ─────────────────────────────────────────────────────────────
-# Étape 4 : SMOTE + Undersampling sur données finales
-# ─────────────────────────────────────────────────────────────
-X_train_final = X.iloc[train_val_idx][best_row["features"]]
-y_train_final = y.iloc[train_val_idx]
-
+# ====== Étape 5 : Entraînement final + test ======
 X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
 y_test = df_test["SINISTRE_BINARY"]
+
+X_train_final = X.iloc[np.concatenate([val_idx for _, val_idx in folds])][best_row["features"]]
+y_train_final = y.iloc[np.concatenate([val_idx for _, val_idx in folds])]
+
 X_test_final = X_test[best_row["features"]]
 
-# ─────────────────────────────────────────────────────────────
-# Étape 5 : Entraînement final + optimisation du seuil
-# ─────────────────────────────────────────────────────────────
 final_pipe = Pipeline([
     ("smote", SMOTE(random_state=42)),
     ("under", RandomUnderSampler(random_state=42)),
-    ("clf", XGBClassifier(
-        objective="binary:logistic",
-        use_label_encoder=False,
-        eval_metric="logloss",
-        n_estimators=100,
-        random_state=42,
-        n_jobs=-1
-    ))
+    ("clf", XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1))
 ])
-
 final_pipe.fit(X_train_final, y_train_final)
+
 y_test_proba = final_pipe.predict_proba(X_test_final)[:, 1]
+y_test_pred = (y_test_proba >= best_row["threshold"]).astype(int)
 
-# Optimisation du seuil
-best_thresh = best_row["threshold"]
-y_test_pred = (y_test_proba >= best_thresh).astype(int)
-
-# ─────────────────────────────────────────────────────────────
-# Étape 6 : Évaluation finale sur le jeu de test
-# ─────────────────────────────────────────────────────────────
-print(f"\n📊 Seuil de décision optimisé : {best_thresh:.2f}")
-print("Confusion matrix :")
+print("\n📊 Évaluation finale sur le TEST :")
+print("Confusion Matrix :")
 print(confusion_matrix(y_test, y_test_pred))
-print("\nClassification report :")
+print("\nClassification Report :")
 print(classification_report(y_test, y_test_pred, digits=4))
 print(f"AUC : {roc_auc_score(y_test, y_test_proba):.4f}")
 print(f"F1-score : {f1_score(y_test, y_test_pred):.4f}")
