@@ -1,17 +1,54 @@
-import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
 
-# Courbe ROC
-fpr, tpr, thresholds = roc_curve(y_test_final, y_test_proba)
-roc_auc = auc(fpr, tpr)
+# --- 1. Préparation des données ---
+df = df_all_trim_final.copy()
+df["CONTRAT"] = df["CONTRAT"].astype(str)
+df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
 
-plt.figure(figsize=(8, 6))
-plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (AUC = {roc_auc:.4f})")
-plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--", label="Random Classifier")
-plt.xlabel("Taux de faux positifs (FPR)")
-plt.ylabel("Taux de vrais positifs (TPR)")
-plt.title("Courbe ROC – LightGBM")
-plt.legend(loc="lower right")
-plt.grid(alpha=0.3)
-plt.tight_layout()
-plt.show()
+# Stratification par contrat
+contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
+
+train_val_ids, test_ids = train_test_split(
+    contracts_df["CONTRAT"], test_size=0.2,
+    stratify=contracts_df["SINISTRE_BINARY"], random_state=42
+)
+
+df_train_val = df[df["CONTRAT"].isin(train_val_ids)].copy()
+df_test = df[df["CONTRAT"].isin(test_ids)].copy()
+
+# --- 2. Variables explicatives ---
+X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+X = X.loc[:, ~X.columns.duplicated()]
+X = X.astype(np.float32)
+y = df_train_val["SINISTRE_BINARY"].astype(np.int32)
+
+X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
+X_test = X_test.loc[:, ~X_test.columns.duplicated()]
+X_test = X_test.astype(np.float32)
+y_test = df_test["SINISTRE_BINARY"].astype(np.int32)
+
+# --- 3. Modèle de régression logistique ---
+model = LogisticRegression(
+    penalty='l2',
+    solver='liblinear',
+    class_weight='balanced',  # pour compenser le déséquilibre
+    random_state=42
+)
+
+model.fit(X, y)
+
+# --- 4. Évaluation sur le jeu de test ---
+y_pred = model.predict(X_test)
+y_proba = model.predict_proba(X_test)[:, 1]
+
+print("📊 Évaluation sur le TEST (Régression logistique simple) :")
+print("Confusion Matrix :")
+print(confusion_matrix(y_test, y_pred))
+print("\nClassification Report :")
+print(classification_report(y_test, y_pred, digits=4))
+print(f"AUC : {roc_auc_score(y_test, y_proba):.4f}")
+print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
