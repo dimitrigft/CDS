@@ -1,114 +1,20 @@
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedGroupKFold
-from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
-from catboost import CatBoostClassifier
-from imblearn.pipeline import Pipeline
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
 
-# Étape 1 : Préparation des données
-df = df_all_trim_final.copy()
-df["CONTRAT"] = df["CONTRAT"].astype(str)
-df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
+# Calcul des courbes ROC
+fpr, tpr, thresholds = roc_curve(y_test_final, y_test_proba)
+roc_auc = auc(fpr, tpr)
 
-# Split par contrat
-contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
-train_val_ids, test_ids = train_test_split(
-    contracts_df["CONTRAT"],
-    test_size=0.2,
-    stratify=contracts_df["SINISTRE_BINARY"],
-    random_state=42
-)
-df_train_val = df[df["CONTRAT"].isin(train_val_ids)]
-df_test = df[df["CONTRAT"].isin(test_ids)]
-
-# Étape 2 : Définir X, y, groups
-X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X = X.loc[:, ~X.columns.duplicated()]  # supprimer colonnes dupliquées
-y = df_train_val["SINISTRE_BINARY"]
-groups = df_train_val["CONTRAT"]
-
-# Étape 3 : Cross-validation groupée
-sgkf = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
-folds = list(sgkf.split(X, y, groups=groups))
-train_val_idx = np.concatenate([val_idx for _, val_idx in folds[:3]])
-val_idx = folds[3][1]
-
-# Étape 4 : Sélection des variables importantes
-def select_top_features_by_importance(model, X, threshold=0.005):
-    importances = model.get_feature_importance()
-    return X.columns[np.array(importances) > threshold].tolist()
-
-seuils_importance = [0.0005, 0.001, 0.002, 0.005, 0.01]
-resultats = []
-
-for seuil in seuils_importance:
-    print(f"\n🔎 Seuil importance : {seuil}")
-
-    model_cb = CatBoostClassifier(verbose=0, random_state=42)
-    model_cb.fit(X.iloc[train_val_idx], y.iloc[train_val_idx])
-    selected_features = select_top_features_by_importance(model_cb, X, threshold=seuil)
-
-    X_train_sel = X.iloc[train_val_idx][selected_features]
-    y_train_sel = y.iloc[train_val_idx]
-    X_val_sel = X.iloc[val_idx][selected_features]
-    y_val_sel = y.iloc[val_idx]
-
-    pipe = Pipeline([
-        ("smote", SMOTE(random_state=42)),
-        ("under", RandomUnderSampler(random_state=42)),
-        ("clf", CatBoostClassifier(verbose=0, random_state=42))
-    ])
-
-    pipe.fit(X_train_sel, y_train_sel)
-    y_val_proba = pipe.predict_proba(X_val_sel)[:, 1]
-
-    best_f1 = 0
-    best_thresh = 0.5
-    for t in np.arange(0.01, 1.0, 0.01):
-        y_val_pred = (y_val_proba >= t).astype(int)
-        f1 = f1_score(y_val_sel, y_val_pred)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_thresh = t
-
-    resultats.append({
-        "seuil_var": seuil,
-        "n_features": len(selected_features),
-        "best_threshold": best_thresh,
-        "best_f1": best_f1,
-        "features": selected_features
-    })
-
-# Étape 5 : Sélection du meilleur seuil
-results_df = pd.DataFrame(resultats)
-best_row = results_df.sort_values(by="best_f1", ascending=False).iloc[0]
-
-# Étape 6 : Réentraînement + test final
-X_train_final = X.iloc[train_val_idx][best_row["features"]]
-y_train_final = y.iloc[train_val_idx]
-
-X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X_test = X_test.loc[:, ~X_test.columns.duplicated()]
-X_test_final = X_test[best_row["features"]]
-y_test_final = df_test["SINISTRE_BINARY"]
-
-final_pipe = Pipeline([
-    ("smote", SMOTE(random_state=42)),
-    ("under", RandomUnderSampler(random_state=42)),
-    ("clf", CatBoostClassifier(verbose=0, random_state=42))
-])
-
-final_pipe.fit(X_train_final, y_train_final)
-y_test_proba = final_pipe.predict_proba(X_test_final)[:, 1]
-y_test_pred = (y_test_proba >= best_row["best_threshold"]).astype(int)
-
-# Résultats finaux
-print("\n📊 Évaluation finale sur le TEST :")
-print("Confusion matrix :")
-print(confusion_matrix(y_test_final, y_test_pred))
-print("\nClassification report :")
-print(classification_report(y_test_final, y_test_pred, digits=4))
-print(f"AUC : {roc_auc_score(y_test_final, y_test_proba):.4f}")
-print(f"F1-score : {f1_score(y_test_final, y_test_pred):.4f}")
+# Affichage
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (AUC = {roc_auc:.4f})")
+plt.plot([0, 1], [0, 1], color="navy", lw=1, linestyle="--", label="Random classifier")
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel("Taux de faux positifs (FPR)")
+plt.ylabel("Taux de vrais positifs (TPR)")
+plt.title("Courbe ROC – Modèle CatBoost")
+plt.legend(loc="lower right")
+plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
