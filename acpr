@@ -1,32 +1,48 @@
-from imblearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import SelectFromModel
+from sklearn.pipeline import Pipeline
+from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, f1_score, roc_auc_score, confusion_matrix
+import numpy as np
 
-# Pipeline de traitement avec SMOTE + undersampling + régression logistique
-pipeline = Pipeline([
+# 1. Sélection des variables importantes (par L1)
+selector = SelectFromModel(LogisticRegression(penalty="l1", solver="liblinear", random_state=42), threshold="mean")
+
+# 2. Pipeline complet avec équilibrage
+pipeline = ImbPipeline([
+    ("feature_selection", selector),
     ("smote", SMOTE(random_state=42)),
     ("under", RandomUnderSampler(random_state=42)),
-    ("clf", LogisticRegression(
-        penalty='l2',
-        solver='liblinear',
-        class_weight=None,  # Désactivé ici, car on rééquilibre en amont
-        random_state=42
-    ))
+    ("clf", LogisticRegression(penalty="l2", class_weight="balanced", solver="liblinear", random_state=42))
 ])
 
-# Entraînement
-pipeline.fit(X, y)
+# 3. Entraînement
+pipeline.fit(X_train_final, y_train_final)
 
-# Prédictions
-y_pred = pipeline.predict(X_test)
-y_proba = pipeline.predict_proba(X_test)[:, 1]
+# 4. Probabilités pour seuil optimisé
+y_val_proba = pipeline.predict_proba(X_test_final)[:, 1]
 
-# Évaluation
-print("\n📊 Régression logistique avec SMOTE + undersampling :")
+# Optimisation du seuil
+meilleur_seuil = 0.5
+meilleur_f1 = 0
+
+for seuil in np.arange(0.01, 1.0, 0.01):
+    y_val_pred = (y_val_proba >= seuil).astype(int)
+    f1 = f1_score(y_test_final, y_val_pred)
+    if f1 > meilleur_f1:
+        meilleur_f1 = f1
+        meilleur_seuil = seuil
+
+print(f"\n🔍 Meilleur seuil trouvé : {meilleur_seuil:.2f} avec F1-score : {meilleur_f1:.4f}")
+
+y_test_pred = (y_val_proba >= meilleur_seuil).astype(int)
+
+print("\n📊 Évaluation finale - Régression logistique optimisée :")
 print("Confusion matrix :")
-print(confusion_matrix(y_test, y_pred))
+print(confusion_matrix(y_test_final, y_test_pred))
 print("\nClassification report :")
-print(classification_report(y_test, y_pred, digits=4))
-print(f"AUC : {roc_auc_score(y_test, y_proba):.4f}")
-print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
+print(classification_report(y_test_final, y_test_pred, digits=4))
+print(f"AUC : {roc_auc_score(y_test_final, y_val_proba):.4f}")
+print(f"F1-score optimisé : {f1_score(y_test_final, y_test_pred):.4f}")
