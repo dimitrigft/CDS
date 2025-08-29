@@ -1,22 +1,21 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
+---------------------------------------------------------------------------
+IndexError                                Traceback (most recent call last)
+Cell In[48], line 8
+      5 rf_model = final_pipe.named_steps["clf"]
+      7 # Récupération des noms de variables et de leur importance
+----> 8 feature_names = X.columns[best_row["features"]]
+      9 importances = rf_model.feature_importances_
+     10 feat_imp = pd.Series(importances, index=feature_names)
 
-# Récupération du modèle Random Forest
-rf_model = final_pipe.named_steps["clf"]
+File c:\Users\UD87EF\.pyenv\pyenv-win-master\pyenv-win\versions\3.13.0\Lib\site-packages\pandas\core\indexes\base.py:5416, in Index.__getitem__(self, key)
+   5407         if len(key) == 0 and len(key) != len(self):
+   5408             warnings.warn(
+   5409                 "Using a boolean indexer with length 0 on an Index with "
+   5410                 "length greater than 0 is deprecated and will raise in a "
+   (...)   5413                 stacklevel=find_stack_level(),
+   5414             )
+-> 5416 result = getitem(key)
+   5417 # Because we ruled out integer above, we always get an arraylike here
+   5418 if result.ndim > 1:
 
-# Récupération des noms de variables et de leur importance
-feature_names = X.columns[best_row["features"]]
-importances = rf_model.feature_importances_
-feat_imp = pd.Series(importances, index=feature_names)
-
-# Tri et sélection des 15 plus importantes
-top_features = feat_imp.sort_values(ascending=False).head(15)
-
-# Affichage du graphique
-plt.figure(figsize=(10, 6))
-sns.barplot(x=top_features.values, y=top_features.index, palette="crest")
-plt.title("🌳 Importance des variables - Random Forest")
-plt.xlabel("Importance (feature_importances_)")
-plt.ylabel("Variables")
-plt.tight_layout()
-plt.show()
+IndexError: only integers, slices (`:`), ellipsis (`...`), numpy.newaxis (`None`) and integer or boolean arrays are valid indices
