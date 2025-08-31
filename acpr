@@ -1,26 +1,17 @@
-import pandas as pd
-import matplotlib.pyplot as plt
+# Trier les variables de la moins importante à la plus importante
+fi_df_least = fi_df.sort_values("importance", ascending=True)
 
-# Récupérer le classifieur CatBoost du pipeline final
-clf_final = final_pipe.named_steps["clf"]
+# Afficher les 20 moins importantes
+print("\n🔻 Les 20 variables les moins importantes :")
+print(fi_df_least.head(20))
 
-# Importance des variables
-importances = clf_final.get_feature_importance()
-fi_df = pd.DataFrame({
-    "feature": X_train_final.columns,
-    "importance": importances
-}).sort_values("importance", ascending=False)
-
-print("\nTop 20 variables importantes :")
-print(fi_df.head(20))
-
-# Tracer le Top k
+# Tracer les 20 moins importantes
 k = 20
-fi_top = fi_df.head(k).iloc[::-1]  # pour afficher de bas en haut
+fi_least = fi_df_least.head(k).iloc[::-1]  # Pour affichage visuel de bas en haut
 plt.figure(figsize=(8, 6))
-plt.barh(fi_top["feature"], fi_top["importance"])
+plt.barh(fi_least["feature"], fi_least["importance"])
 plt.xlabel("Importance (CatBoost)")
 plt.ylabel("Variables")
-plt.title(f"Importance des variables – Modèle final (Top {k})")
+plt.title(f"Variables les moins importantes – CatBoost (Bottom {k})")
 plt.tight_layout()
 plt.show()
