@@ -1,9 +1,23 @@
 \subsubsection{Limites}
 \begin{itemize}
-    \item \textbf{Qualité et disponibilité des données} : Les données assurantielles issues du portefeuille Multirisque Agricole (MA) présentent certaines limites : Certaines années manquaient de tables utiles ce qui nous a forcé à ne pas inclure certaines variables. 
+    \item \textbf{Qualité et disponibilité des données} : Les données assurantielles issues du portefeuille Multirisque Agricole (MA) présentent certaines limites : certaines années manquaient de tables utiles, ce qui nous a forcés à ne pas inclure certaines variables.
     \vspace{1em}
     \item \textbf{Appariement spatial et temporel} : L’appariement entre les grilles ERA5 et les communes INSEE repose sur une jointure spatiale qui introduit nécessairement une approximation. De plus, l’agrégation des données à une échelle mensuelle ou trimestrielle atténue la capacité du modèle à détecter les phénomènes extrêmes (rafales violentes, tempêtes localisées) qui sont pourtant les principaux déclencheurs de sinistres.
     \vspace{1em}
-    \item \textbf{Simplifications méthodologiques} : l'utilisation d'une approche de séries temporelles statique peut ne pas permettre de capter des dépendances temporelles voire des patterns(si elles existent). Par ailleurs, l’étude n’a pas intégré de dimensions économiques complètes (coûts de transaction, gestion du risque de portefeuille, tarification des primes), car les données concernant les montants sur les contrats étaient donnés par image et nous avons retenu les dernières images.
+    \item \textbf{Simplifications méthodologiques} : L'utilisation d'une approche de séries temporelles statique peut ne pas permettre de capter des dépendances temporelles complexes, voire des patterns non linéaires (si elles existent). Par ailleurs, l’étude n’a pas intégré de dimensions économiques complètes (coûts de transaction, gestion du risque de portefeuille, tarification des primes), car les données concernant les montants des contrats étaient disponibles sous forme d’images, et seules les dernières images ont pu être retenues.
     \vspace{1em}
-    \item \textbf{Une meilleure intégration d’une dimension économique} : Etant à une maille contrat, il nous était difficile d'utiliser certaines variables avec une dimension économique lié au sinistre.
+    \item \textbf{Intégration économique limitée} : Étant donné que la maille d’analyse retenue est le contrat, il était difficile d’utiliser certaines variables financières liées directement aux sinistres ou aux primes. Cela a limité la portée des conclusions en termes de rentabilité et de gestion actuarielle.
+\end{itemize}
+
+\subsubsection{Améliorations possibles et pistes à exploiter}
+\begin{itemize}
+    \item \textbf{Amélioration de la qualité des données} : Une meilleure centralisation et numérisation des bases assurantielles permettrait de limiter les années manquantes et d’intégrer plus de variables contractuelles (montants assurés, primes, franchises). L’utilisation d’outils de reconnaissance automatique (OCR avancé) pourrait aussi faciliter l’exploitation des images.
+    \vspace{1em}
+    \item \textbf{Granularité plus fine des données météo} : L’exploitation de données climatiques à une échelle journalière, voire horaire, permettrait de mieux capter l’occurrence de phénomènes extrêmes. L’intégration de modèles à plus haute résolution (ex. AROME) constituerait également une piste pertinente pour affiner les appariements.
+    \vspace{1em}
+    \item \textbf{Méthodes de modélisation avancées} : L’utilisation de modèles dynamiques (par exemple des modèles à mémoire longue comme LSTM, ou des approches bayésiennes hiérarchiques) pourrait permettre de mieux capter les dépendances temporelles et la variabilité intra-annuelle.
+    \vspace{1em}
+    \item \textbf{Intégration de la dimension économique} : Les perspectives de recherche incluent une meilleure exploitation des variables financières (primes, indemnisations, coûts de gestion) afin de coupler l’approche climatique avec des analyses économiques. Cela permettrait de passer d’un diagnostic sur la sinistralité à une véritable analyse coût-bénéfice pour l’assureur.
+    \vspace{1em}
+    \item \textbf{Ouverture vers d’autres risques climatiques} : Enfin, la méthodologie développée pour le vent pourrait être étendue à d’autres aléas climatiques pertinents pour l’agriculture (sécheresse, grêle, inondations), afin de proposer une vision intégrée du risque climatique dans le portefeuille MA.
+\end{itemize}
