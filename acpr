@@ -1,49 +1,9 @@
-Conclusion
-
-Ce rapport d’alternance retrace une année riche au sein du pôle Data de la Direction de l’Audit des Assurances de Crédit Agricole Assurances. Cette expérience m’a permis de comprendre concrètement le rôle de l’audit interne dans la maîtrise des risques et de mesurer la place croissante que prend la donnée dans ce métier.
-
-Mon intégration dans l’entreprise s’est déroulée dans de très bonnes conditions. Dès mon arrivée, j’ai bénéficié d’un accueil chaleureux de la part des équipes, ce qui m’a permis de trouver rapidement mes repères. L’accompagnement attentif et la disponibilité de mon tuteur, Monsieur Mustapha Benarbia, ont constitué un véritable soutien tout au long de l’année. Ses conseils et son suivi régulier ont grandement facilité mon évolution et m’ont permis de progresser avec confiance dans un environnement exigeant.
-
-Les projets menés m’ont permis de mettre en pratique les compétences acquises au Master MoSEF, mais aussi de développer des aptitudes essentielles pour le monde professionnel : rigueur, autonomie, capacité à collaborer avec des profils variés et à restituer des résultats de manière claire et utile pour le métier.
-
-Enfin, cette alternance m’a confirmé l’importance stratégique de la data science dans le secteur de l’assurance. Les outils et méthodes mobilisés ne sont pas seulement techniques : ils apportent une réelle valeur ajoutée pour la compréhension des risques et la prise de décision.
-
-En définitive, cette année a été formatrice à tous points de vue : j’y ai trouvé une expérience humaine enrichissante, une intégration réussie dans une équipe solidaire, et une étape déterminante dans mon projet professionnel.
-
-
-
-
-
-
-
-
---------------
-
-
-Parfait 👍 Je vais te rédiger une section complète et académique qui regroupe à la fois les limites de ton travail et les améliorations/pistes futures. Voici une version cohérente que tu pourras insérer telle quelle dans ton mémoire :
-
-⸻
-
-Limites et pistes d’amélioration
-
-Malgré l’intérêt des résultats obtenus, ce travail comporte plusieurs limites méthodologiques et pratiques qu’il convient de souligner. Ces limites ouvrent également la voie à des pistes d’amélioration et de recherche future.
-	•	Qualité et disponibilité des données
-Les données assurantielles issues du portefeuille Multirisque Agricole (MA) présentent certaines limites : erreurs de saisie possibles, hétérogénéité dans la déclaration des sinistres, et absence de variables fines décrivant les caractéristiques des exploitations agricoles (type de culture, pratiques culturales, dispositifs d’irrigation, etc.). Du côté des données climatiques, l’utilisation des réanalyses ERA5 garantit une cohérence temporelle et spatiale, mais la résolution (0,25°) reste insuffisante pour refléter les conditions locales exactes auxquelles sont exposées les exploitations.
-	•	Appariement spatial et temporel
-L’appariement entre les grilles ERA5 et les communes INSEE repose sur une jointure spatiale qui introduit nécessairement une approximation. De plus, l’agrégation des données à une échelle mensuelle ou journalière atténue la capacité du modèle à détecter les phénomènes extrêmes (rafales violentes, tempêtes localisées) qui sont pourtant les principaux déclencheurs de sinistres.
-	•	Simplifications méthodologiques
-Les modèles utilisés (LightGBM, filtres de Kalman) offrent un compromis intéressant entre performance et interprétabilité. Cependant, ils ne captent pas pleinement la complexité des dépendances spatio-temporelles, ni les corrélations non linéaires potentielles entre variables climatiques et sinistres. Par ailleurs, l’étude n’a pas intégré de dimensions économiques complètes (coûts de transaction, gestion du risque de portefeuille, tarification des primes), ce qui limite sa portée pratique dans une perspective assurantielle.
-	•	Généralisation des résultats
-L’étude s’appuie sur un échantillon spécifique (contrats MA actifs sur la période 2018–2025). Les résultats doivent donc être interprétés avec prudence avant toute généralisation à d’autres régions, cultures ou produits d’assurance. Enfin, le changement climatique, en constante évolution, implique que les modèles construits aujourd’hui doivent être régulièrement réentraînés pour conserver leur pertinence prédictive.
-
-Améliorations possibles et pistes à exploiter
-	•	Affiner les données utilisées
-L’intégration de sources climatiques complémentaires (par exemple Météo-France ou Copernicus à plus haute résolution) permettrait de mieux saisir les événements extrêmes. De même, l’enrichissement des bases assurantielles avec des informations contextuelles (nature des cultures, taille des exploitations, pratiques agricoles) renforcerait la robustesse des modèles.
-	•	Mieux capturer les extrêmes
-L’exploitation d’indicateurs spécifiques aux événements rares (rafales maximales, indices de variabilité intra-mensuelle) et l’utilisation de la théorie des valeurs extrêmes (Extreme Value Theory) constitueraient des approches pertinentes pour améliorer l’explication des sinistres.
-	•	Approches méthodologiques avancées
-Des modèles spatio-temporels plus complexes (réseaux de neurones récurrents type LSTM, architectures hybrides combinant Deep Learning et économétrie) pourraient mieux capter les dépendances dynamiques entre climat et sinistres. Une comparaison systématique de plusieurs méthodes renforcerait la validité des résultats.
-	•	Intégration d’une dimension économique
-L’ajout d’informations sur le coût des sinistres, le montant des primes et les dispositifs publics de subvention permettrait d’évaluer la performance des modèles dans une perspective opérationnelle (tarification, gestion des risques). Des simulations sur la diversification du portefeuille (par culture, par zone géographique) constitueraient également un prolongement naturel.
-	•	Perspectives de recherche
-Enfin, l’élargissement de l’analyse à d’autres aléas climatiques (sécheresse, inondation, gel) et l’intégration de scénarios climatiques prospectifs (RCP/SSP du GIEC) offriraient une vision plus globale de l’évolution du risque climatique en agriculture. Ces développements nécessiteraient idéalement une collaboration étroite entre acteurs académiques, assureurs et organismes publics afin d’accroître la qualité et l’impact pratique des travaux.
+\subsubsection{Limites}
+\begin{itemize}
+    \item \textbf{Qualité et disponibilité des données} : Les données assurantielles issues du portefeuille Multirisque Agricole (MA) présentent certaines limites : Certaines années manquaient de tables utiles ce qui nous a forcé à ne pas inclure certaines variables. 
+    \vspace{1em}
+    \item \textbf{Appariement spatial et temporel} : L’appariement entre les grilles ERA5 et les communes INSEE repose sur une jointure spatiale qui introduit nécessairement une approximation. De plus, l’agrégation des données à une échelle mensuelle ou trimestrielle atténue la capacité du modèle à détecter les phénomènes extrêmes (rafales violentes, tempêtes localisées) qui sont pourtant les principaux déclencheurs de sinistres.
+    \vspace{1em}
+    \item \textbf{Simplifications méthodologiques} : l'utilisation d'une approche de séries temporelles statique peut ne pas permettre de capter des dépendances temporelles voire des patterns(si elles existent). Par ailleurs, l’étude n’a pas intégré de dimensions économiques complètes (coûts de transaction, gestion du risque de portefeuille, tarification des primes), car les données concernant les montants sur les contrats étaient donnés par image et nous avons retenu les dernières images.
+    \vspace{1em}
+    \item \textbf{Une meilleure intégration d’une dimension économique} : Etant à une maille contrat, il nous était difficile d'utiliser certaines variables avec une dimension économique lié au sinistre.
