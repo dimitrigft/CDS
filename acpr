@@ -1,89 +1,49 @@
-# Regression logistique simple
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.metrics import make_scorer
+from catboost import CatBoostClassifier
 
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, roc_auc_score, f1_score, confusion_matrix
+# Pipeline pour RandomizedSearchCV
+opt_pipe = Pipeline([
+    ("smote", SMOTE(random_state=42)),
+    ("under", RandomUnderSampler(random_state=42)),
+    ("clf", CatBoostClassifier(verbose=0, random_state=42))
+])
 
-# --- 1. Préparation des données ---
-df = df_all_trim_final.copy()
-df["CONTRAT"] = df["CONTRAT"].astype(str)
-df["SINISTRE_BINARY"] = df["SINISTRE"].astype(int)
+# Grille d'hyperparamètres
+param_grid = {
+    "clf__iterations": [100, 200, 300],
+    "clf__learning_rate": [0.01, 0.05, 0.1],
+    "clf__depth": [4, 6, 8],
+    "clf__l2_leaf_reg": [1, 3, 5, 7],
+    "clf__border_count": [32, 64, 128]
+}
 
-# Stratification par contrat
-contracts_df = df.groupby("CONTRAT").agg({"SINISTRE_BINARY": "max"}).reset_index()
-train_val_ids, test_ids = train_test_split(
-    contracts_df["CONTRAT"], test_size=0.2,
-    stratify=contracts_df["SINISTRE_BINARY"], random_state=42
-)
-
-df_train_val = df[df["CONTRAT"].isin(train_val_ids)].copy()
-df_test = df[df["CONTRAT"].isin(test_ids)].copy()
-
-# --- 2. Variables explicatives ---
-X = df_train_val.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X = X.loc[:, ~X.columns.duplicated()]  # Supprimer les colonnes dupliquées
-X = X.astype(np.float32)
-y = df_train_val["SINISTRE_BINARY"].astype(np.int32)
-
-X_test = df_test.drop(columns=["SINISTRE", "SINISTRE_BINARY", "TRIM_YEAR", "CONTRAT", "INSEE_COM", "NOMBRE_SINISTRES"])
-X_test = X_test.loc[:, ~X_test.columns.duplicated()]
-X_test = X_test.astype(np.float32)
-y_test = df_test["SINISTRE_BINARY"].astype(np.int32)
-
-# --- 3. Modèle de régression logistique naïve ---
-model = LogisticRegression(
-    penalty='l2',
-    solver='liblinear',
-    class_weight='balanced',  # pour compenser le déséquilibre des classes
+# Optimisation
+search = RandomizedSearchCV(
+    estimator=opt_pipe,
+    param_distributions=param_grid,
+    scoring=make_scorer(f1_score),
+    n_iter=20,  # Ajuste selon les ressources
+    cv=3,
+    verbose=2,
+    n_jobs=-1,
     random_state=42
 )
 
-model.fit(X, y)
+search.fit(X_train_final, y_train_final)
 
-# --- 4. Évaluation sur le jeu de test ---
-y_pred = model.predict(X_test)
-y_proba = model.predict_proba(X_test)[:, 1]
+# Meilleurs hyperparamètres
+print("\n Meilleurs paramètres trouvés :")
+print(search.best_params_)
 
-print(" Évaluation sur le TEST (Régression logistique naïve) :")
-print("Confusion Matrix :")
-print(confusion_matrix(y_test, y_pred))
-print("\nClassification Report :")
-print(classification_report(y_test, y_pred, digits=4))
-print(f"AUC : {roc_auc_score(y_test, y_proba):.4f}")
-print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
+# Évaluation
+y_test_proba = search.predict_proba(X_test_final)[:, 1]
+best_f1 = 0
+best_thresh = 0.5
+for t in np.arange(0.01, 1.0, 0.01):
+    f1 = f1_score(y_test_final, (y_test_proba >= t).astype(int))
+    if f1 > best_f1:
+        best_f1 = f1
+        best_thresh = t
 
----------------------------------------------------------------------------
-ValueError                                Traceback (most recent call last)
-Cell In[39], line 43
-     35 # --- 3. Modèle de régression logistique naïve ---
-     36 model = LogisticRegression(
-     37     penalty='l2',
-     38     solver='liblinear',
-     39     class_weight='balanced',  # pour compenser le déséquilibre des classes
-     40     random_state=42
-     41 )
----> 43 model.fit(X, y)
-     45 # --- 4. Évaluation sur le jeu de test ---
-     46 y_pred = model.predict(X_test)
-
-File c:\Users\UD87EF\.pyenv\pyenv-win-master\pyenv-win\versions\3.13.0\Lib\site-packages\sklearn\base.py:1363, in _fit_context.<locals>.decorator.<locals>.wrapper(estimator, *args, **kwargs)
-   1356     estimator._validate_params()
-   1358 with config_context(
-   1359     skip_parameter_validation=(
-   1360         prefer_skip_nested_validation or global_skip_validation
-   1361     )
-   1362 ):
--> 1363     return fit_method(estimator, *args, **kwargs)
-
-File c:\Users\UD87EF\.pyenv\pyenv-win-master\pyenv-win\versions\3.13.0\Lib\site-packages\sklearn\linear_model\_logistic.py:1239, in LogisticRegression.fit(self, X, y, sample_weight)
-   1236 else:
-...
-    168     )
---> 169 raise ValueError(msg_err)
-
-ValueError: Input X contains NaN.
-LogisticRegression does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values
-Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
-
+print(f"\nSeuil optimal : {best_thresh:.2f} | F1-score : {best_f1:.4f}")
